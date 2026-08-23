@@ -1,21 +1,17 @@
-//
-//  AppModel.swift
-//  AroundTheWorld2
-//
-//  Created by Chirag Chandak on 22/08/26.
-//
-
 import SwiftUI
 
-/// Maintains app-wide state
 @MainActor
 @Observable
-class AppModel {
+final class AppModel {
+    let launcherWindowID = "LauncherWindow"
     let immersiveSpaceID = "ImmersiveSpace"
+    let intelligence = CommodityIntelligenceViewModel()
+
     enum ImmersiveSpaceState {
         case closed
         case inTransition
         case open
     }
+
     var immersiveSpaceState = ImmersiveSpaceState.closed
 }

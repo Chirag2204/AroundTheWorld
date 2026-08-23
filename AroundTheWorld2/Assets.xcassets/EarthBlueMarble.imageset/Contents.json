@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "world.topo.bathy.200412.3x5400x2700.jpg",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

@@ -1,0 +1,219 @@
+import SwiftUI
+
+struct CommodityRibbonView: View {
+    @Bindable var viewModel: CommodityIntelligenceViewModel
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ForEach(Commodity.allCases) { commodity in
+                Button {
+                    withAnimation(.smooth(duration: 0.45)) {
+                        viewModel.selectCommodity(commodity)
+                    }
+                } label: {
+                    VStack(spacing: 2) {
+                        Text(commodity.symbol)
+                            .font(.system(size: 19, weight: .bold, design: .rounded))
+                        Text(commodity.assetClass.rawValue)
+                            .font(.system(size: 11, weight: .medium))
+                    }
+                    .frame(width: 116, height: 58)
+                }
+                .buttonStyle(.plain)
+                .background(selectedBackground(for: commodity), in: RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(commodity == viewModel.selectedCommodity ? Color.cyan.opacity(0.85) : Color.white.opacity(0.12), lineWidth: 1))
+            }
+        }
+        .padding(12)
+        .glassPanel(border: Color.cyan.opacity(0.45))
+    }
+
+    private func selectedBackground(for commodity: Commodity) -> Color {
+        commodity == viewModel.selectedCommodity ? Color.cyan.opacity(0.22) : Color.white.opacity(0.055)
+    }
+}
+
+struct NewsStreamView: View {
+    @Bindable var viewModel: CommodityIntelligenceViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Event & Intelligence Stream")
+                    .font(.system(size: 22, weight: .semibold))
+                Text("Gaze and tap an event to focus the globe")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+
+            ForEach(viewModel.currentEvents) { event in
+                EventCard(event: event, isSelected: event == viewModel.selectedEvent) {
+                    withAnimation(.smooth(duration: 0.4)) {
+                        viewModel.focus(on: event)
+                    }
+                }
+            }
+        }
+        .padding(22)
+        .glassPanel(border: Color.cyan.opacity(0.38))
+    }
+}
+
+private struct EventCard: View {
+    let event: CommodityEvent
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    CategoryBadge(category: event.category, severity: event.severity)
+                    Spacer()
+                    Text(event.timestamp, style: .time)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                Text(event.headline)
+                    .font(.system(size: 16, weight: .semibold))
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    Text("\(event.coordinate.latitude.formatted(.number.precision(.fractionLength(1))))°, \(event.coordinate.longitude.formatted(.number.precision(.fractionLength(1))))°")
+                    Spacer()
+                    Text(event.volumeImpact)
+                        .foregroundStyle(event.severity >= 0 ? Color(red: 1, green: 0.09, blue: 0.27) : Color(red: 0, green: 0.90, blue: 0.46))
+                }
+                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .foregroundStyle(.secondary)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(isSelected ? Color.cyan.opacity(0.16) : Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(isSelected ? Color.cyan.opacity(0.78) : Color.white.opacity(0.10), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct CategoryBadge: View {
+    let category: IntelligenceCategory
+    let severity: Double
+
+    var body: some View {
+        Text(category.rawValue.uppercased())
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(.black)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+            .background(color, in: Capsule())
+    }
+
+    private var color: Color {
+        switch category {
+        case .geopolitical, .macro: Color(red: 0, green: 0.90, blue: 1)
+        case .weather: Color(red: 1, green: 0.70, blue: 0)
+        case .supplyChain: severity >= 0 ? Color(red: 1, green: 0.09, blue: 0.27) : Color(red: 0, green: 0.90, blue: 0.46)
+        }
+    }
+}
+
+struct PredictiveScenarioSlider: View {
+    @Bindable var viewModel: CommodityIntelligenceViewModel
+
+    var body: some View {
+        VStack(spacing: 12) {
+            HStack {
+                Text("What-If Matrix")
+                    .font(.system(size: 20, weight: .semibold))
+                Spacer()
+                Text("\(Int(viewModel.scenarioSeverity))%")
+                    .font(.system(size: 22, weight: .bold, design: .monospaced))
+                    .foregroundStyle(readoutColor)
+            }
+
+            Slider(value: $viewModel.scenarioSeverity, in: -100...100, step: 1)
+                .tint(readoutColor)
+
+            HStack {
+                Text("Surplus / Resolution")
+                Spacer()
+                Text("Escalation / Choke")
+            }
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(.secondary)
+
+            Text(viewModel.liveReadout)
+                .font(.system(size: 14, weight: .semibold, design: .monospaced))
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(20)
+        .glassPanel(border: readoutColor.opacity(0.42))
+    }
+
+    private var readoutColor: Color {
+        viewModel.scenarioSeverity >= 0 ? Color(red: 1, green: 0.09, blue: 0.27) : Color(red: 0, green: 0.90, blue: 0.46)
+    }
+}
+
+struct EventCalloutView: View {
+    let event: CommodityEvent?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(event?.commodity.symbol ?? "CL")
+                .font(.system(size: 13, weight: .bold, design: .monospaced))
+                .foregroundStyle(Color(red: 0, green: 0.90, blue: 1))
+            Text(event?.headline ?? "Spatial Pulse")
+                .font(.system(size: 17, weight: .semibold))
+                .lineLimit(2)
+            Text(event?.metricImpact ?? "Live risk vector initializing")
+                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                .foregroundStyle(.secondary)
+        }
+        .padding(14)
+        .frame(width: 300, alignment: .leading)
+        .glassPanel(border: Color.cyan.opacity(0.52))
+    }
+}
+
+struct StartupLauncherView: View {
+    @Environment(AppModel.self) private var appModel
+    @Environment(\.openImmersiveSpace) private var openImmersiveSpace
+    @Environment(\.dismissWindow) private var dismissWindow
+    @State private var didRequestImmersiveSpace = false
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.001)
+            ProgressView()
+                .controlSize(.small)
+        }
+        .frame(width: 10, height: 10)
+        .task {
+            guard !didRequestImmersiveSpace else { return }
+            didRequestImmersiveSpace = true
+            appModel.immersiveSpaceState = .inTransition
+            switch await openImmersiveSpace(id: appModel.immersiveSpaceID) {
+            case .opened:
+                dismissWindow(id: appModel.launcherWindowID)
+            case .userCancelled, .error:
+                appModel.immersiveSpaceState = .closed
+            @unknown default:
+                appModel.immersiveSpaceState = .closed
+            }
+        }
+    }
+}
+
+extension View {
+    func glassPanel(border: Color) -> some View {
+        self
+            .background(.ultraThinMaterial.opacity(0.92), in: RoundedRectangle(cornerRadius: 8))
+            .background(Color(red: 0.05, green: 0.11, blue: 0.17).opacity(0.70), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(border, lineWidth: 1))
+            .shadow(color: .cyan.opacity(0.14), radius: 18, x: 0, y: 0)
+    }
+}

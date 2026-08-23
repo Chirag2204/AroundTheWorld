@@ -1,26 +1,16 @@
-//
-//  ImmersiveView.swift
-//  AroundTheWorld2
-//
-//  Created by Chirag Chandak on 22/08/26.
-//
-
 import SwiftUI
-import RealityKit
-import RealityKitContent
 
 struct ImmersiveView: View {
+    @Environment(AppModel.self) private var appModel
 
     var body: some View {
-        RealityView { content in
-            // Add the initial RealityKit content
-            if let immersiveContentEntity = try? await Entity(named: "Immersive", in: realityKitContentBundle) {
-                content.add(immersiveContentEntity)
-
-                // Put skybox here.  See example in World project available at
-                // https://developer.apple.com/
+        HorizonImmersiveView(viewModel: appModel.intelligence)
+            .onAppear {
+                appModel.immersiveSpaceState = .open
             }
-        }
+            .onDisappear {
+                appModel.immersiveSpaceState = .closed
+            }
     }
 }
 
