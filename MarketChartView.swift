@@ -14,6 +14,12 @@ struct MarketChartView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                LivePriceBadge(
+                    candle: viewModel.latestCandle,
+                    priceChange: viewModel.livePriceChange,
+                    percentChange: viewModel.livePriceChangePercent,
+                    unit: viewModel.selectedCommodity.priceUnit
+                )
                 TicketButton(commodity: viewModel.selectedCommodity)
             }
 
@@ -41,6 +47,41 @@ struct MarketChartView: View {
     }
 }
 
+private struct LivePriceBadge: View {
+    let candle: CandleData?
+    let priceChange: Double
+    let percentChange: Double
+    let unit: String
+
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 3) {
+            Text(candle?.close.formatted(.currency(code: "USD")) ?? "--")
+                .font(.system(size: 18, weight: .bold, design: .monospaced))
+                .foregroundStyle(changeColor)
+            Text("\(signed(priceChange)) / \(unit)  \(signed(percentChange))%")
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                .foregroundStyle(changeColor.opacity(0.92))
+            Text(candle?.timestamp.formatted(date: .omitted, time: .standard) ?? "Waiting for ticks")
+                .font(.system(size: 10, weight: .medium, design: .monospaced))
+                .foregroundStyle(.secondary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+        .frame(width: 184, alignment: .trailing)
+        .background(Color.white.opacity(0.065), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(changeColor.opacity(0.55), lineWidth: 1))
+    }
+
+    private var changeColor: Color {
+        priceChange >= 0 ? Color(red: 0, green: 0.90, blue: 0.46) : Color(red: 1, green: 0.09, blue: 0.27)
+    }
+
+    private func signed(_ value: Double) -> String {
+        let sign = value >= 0 ? "+" : ""
+        return sign + value.formatted(.number.precision(.fractionLength(2)))
+    }
+}
+
 private struct CandlestickCanvas: View {
     let candles: [CandleData]
     let scenarioSeverity: Double
@@ -57,6 +98,7 @@ private struct CandlestickCanvas: View {
                     drawBands(context: context, size: size, domain: domain)
                     drawCone(context: context, size: size, domain: domain)
                     drawCandles(context: context, size: size, domain: domain)
+                    drawLivePriceMarker(context: context, size: size, domain: domain)
                     drawSelectedEventMarker(context: context, size: size, domain: domain)
                 }
                 .gesture(
@@ -170,6 +212,21 @@ private struct CandlestickCanvas: View {
             let rect = CGRect(x: x - bodyWidth / 2, y: min(openY, closeY), width: bodyWidth, height: max(abs(openY - closeY), 2))
             context.fill(Path(roundedRect: rect, cornerRadius: 2), with: .color(color.opacity(0.80)))
         }
+    }
+
+    private func drawLivePriceMarker(context: GraphicsContext, size: CGSize, domain: ClosedRange<Double>) {
+        guard let latest = candles.last else { return }
+        let latestY = y(latest.close, height: size.height, domain: domain)
+        let color = latest.close >= latest.open ? Color(red: 0, green: 0.90, blue: 0.46) : Color(red: 1, green: 0.09, blue: 0.27)
+
+        var guide = Path()
+        guide.move(to: CGPoint(x: 0, y: latestY))
+        guide.addLine(to: CGPoint(x: size.width, y: latestY))
+        context.stroke(guide, with: .color(color.opacity(0.36)), style: StrokeStyle(lineWidth: 1, dash: [5, 5]))
+
+        let x = xPosition(for: latest, width: size.width)
+        context.fill(Path(ellipseIn: CGRect(x: x - 6, y: latestY - 6, width: 12, height: 12)), with: .color(color.opacity(0.25)))
+        context.fill(Path(ellipseIn: CGRect(x: x - 3.5, y: latestY - 3.5, width: 7, height: 7)), with: .color(color))
     }
 
     private func drawSelectedEventMarker(context: GraphicsContext, size: CGSize, domain: ClosedRange<Double>) {

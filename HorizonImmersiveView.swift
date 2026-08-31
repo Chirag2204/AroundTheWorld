@@ -1,6 +1,7 @@
 import SwiftUI
 import RealityKit
 import UIKit
+import CoreText
 import simd
 
 struct HorizonImmersiveView: View {
@@ -17,21 +18,19 @@ struct HorizonImmersiveView: View {
 
             sceneRoot.addChild(Self.makeTradingArena())
             sceneRoot.addChild(Self.makeLightRig())
-            sceneRoot.addChild(Self.makeGlobeEntity())
-            sceneRoot.addChild(Self.makeAtmosphereEntity())
-            sceneRoot.addChild(Self.makeDynamicContent(viewModel: viewModel))
+            sceneRoot.addChild(Self.makeGlobeSystem(viewModel: viewModel))
             Self.placeAttachments(in: sceneRoot, attachments: attachments)
         } update: { content, attachments in
             guard let sceneRoot = content.entities.first(where: { $0.name == EntityNames.root }) else { return }
-            if let globe = sceneRoot.findEntity(named: EntityNames.globe) {
+            if let globeSystem = sceneRoot.findEntity(named: EntityNames.globeSystem) {
                 content.animate {
-                    globe.orientation = viewModel.rotationToFocusedCoordinate()
+                    globeSystem.orientation = viewModel.rotationToFocusedCoordinate()
                 }
+                if let dynamic = globeSystem.findEntity(named: EntityNames.dynamic) {
+                    dynamic.removeFromParent()
+                }
+                globeSystem.addChild(Self.makeDynamicContent(viewModel: viewModel))
             }
-            if let dynamic = sceneRoot.findEntity(named: EntityNames.dynamic) {
-                dynamic.removeFromParent()
-            }
-            sceneRoot.addChild(Self.makeDynamicContent(viewModel: viewModel))
             Self.placeAttachments(in: sceneRoot, attachments: attachments)
         } attachments: {
             Attachment(id: AttachmentID.ribbon) {
@@ -84,13 +83,22 @@ struct HorizonImmersiveView: View {
         entity.orientation = simd_quatf(angle: 0, axis: [0, 1, 0])
     }
 
+    private static func makeGlobeSystem(viewModel: CommodityIntelligenceViewModel) -> Entity {
+        let root = Entity()
+        root.name = EntityNames.globeSystem
+        root.position.y = globeCenterY
+        root.orientation = viewModel.rotationToFocusedCoordinate()
+        root.addChild(makeGlobeEntity())
+        root.addChild(makeAtmosphereEntity())
+        root.addChild(makeDynamicContent(viewModel: viewModel))
+        return root
+    }
+
     private static func makeGlobeEntity() -> Entity {
         let globe = Entity()
         globe.name = EntityNames.globe
 
-        globe.position.y = globeCenterY
-
-        let ocean = ModelEntity(mesh: .generateSphere(radius: 0.21), materials: [earthMaterial()])
+        let ocean = ModelEntity(mesh: earthMesh(radius: 0.21), materials: [earthMaterial()])
         ocean.name = "PBR Earth Ocean Base"
         globe.addChild(ocean)
 
@@ -110,14 +118,12 @@ struct HorizonImmersiveView: View {
     private static func makeAtmosphereEntity() -> Entity {
         let atmosphere = ModelEntity(mesh: .generateSphere(radius: 0.221), materials: [atmosphereMaterial()])
         atmosphere.name = EntityNames.atmosphere
-        atmosphere.position.y = globeCenterY
         return atmosphere
     }
 
     private static func makeDynamicContent(viewModel: CommodityIntelligenceViewModel) -> Entity {
         let root = Entity()
         root.name = EntityNames.dynamic
-        root.position.y = globeCenterY
         let arcColor = routeColor(for: viewModel.scenarioSeverity)
 
         for route in viewModel.currentRoutes {
@@ -130,8 +136,8 @@ struct HorizonImmersiveView: View {
             root.addChild(routeRoot)
         }
 
-        for event in viewModel.currentEvents {
-            let pin = makePin(for: event)
+        for (index, event) in viewModel.currentEvents.enumerated() {
+            let pin = makePin(for: event, tileIndex: index)
             root.addChild(pin)
             if event == viewModel.selectedEvent {
                 root.addChild(makeShockPulse(for: event, scenarioSeverity: viewModel.scenarioSeverity))
@@ -140,22 +146,69 @@ struct HorizonImmersiveView: View {
         return root
     }
 
-    private static func makePin(for event: CommodityEvent) -> Entity {
+    private static func makePin(for event: CommodityEvent, tileIndex: Int) -> Entity {
         let pinRoot = Entity()
         pinRoot.name = EntityNames.pinName(for: event)
         let position = GlobeMath.latLongTo3D(latitude: event.coordinate.latitude, longitude: event.coordinate.longitude, radius: 0.24)
         pinRoot.position = position
 
         let color = eventColor(event)
-        let pin = ModelEntity(mesh: .generateSphere(radius: 0.013), materials: [emissiveMaterial(color: color, alpha: 0.95)])
+        let normal = normalize(position)
+        let pin = ModelEntity(mesh: .generateSphere(radius: 0.0048), materials: [emissiveMaterial(color: color, alpha: 1.0)])
         pin.components.set(InputTargetComponent())
-        pin.components.set(CollisionComponent(shapes: [.generateSphere(radius: 0.02)]))
+        pin.components.set(CollisionComponent(shapes: [.generateSphere(radius: 0.014)]))
         pin.name = pinRoot.name
         pinRoot.addChild(pin)
 
-        let stem = cylinderBetween([0, 0, 0], normalize(position) * -0.035, radius: 0.002, color: color)
+        let halo = ModelEntity(mesh: .generateSphere(radius: 0.011), materials: [emissiveMaterial(color: color, alpha: 0.24)])
+        halo.name = "Event Halo \(event.id.uuidString)"
+        pinRoot.addChild(halo)
+
+        let glyph = makeEventGlyph(for: event, normal: normal)
+        glyph.name = pinRoot.name
+        pinRoot.addChild(glyph)
+
+        let newsTile = makeEventNewsTile(for: event, normal: normal, tileIndex: tileIndex)
+        pinRoot.addChild(newsTile)
+
+        let stem = cylinderBetween([0, 0, 0], normal * -0.012, radius: 0.0009, color: color)
         pinRoot.addChild(stem)
         return pinRoot
+    }
+
+    private static func makeEventGlyph(for event: CommodityEvent, normal: SIMD3<Float>) -> Entity {
+        let glyph = Entity()
+        glyph.components.set(ViewAttachmentComponent(rootView: EventMapMarkerView(event: event)))
+        glyph.position = normal * 0.018
+        glyph.orientation = simd_quatf(from: [0, 0, 1], to: normal)
+        glyph.scale = [0.62, 0.62, 0.62]
+        glyph.components.set(InputTargetComponent())
+        glyph.components.set(CollisionComponent(shapes: [.generateSphere(radius: 0.016)]))
+        return glyph
+    }
+
+    private static func makeEventNewsTile(for event: CommodityEvent, normal: SIMD3<Float>, tileIndex: Int) -> Entity {
+        let tile = Entity()
+        tile.name = "News Tile \(event.id.uuidString)"
+        tile.components.set(ViewAttachmentComponent(rootView: EventMapNewsTileView(event: event)))
+
+        let tangent = stableTangent(for: normal)
+        let vertical = normalize(simd_cross(normal, tangent))
+        let horizontalOffset = Float(tileIndex % 2 == 0 ? -0.022 : 0.022)
+        let verticalOffset = Float(tileIndex / 2) * 0.020
+        tile.position = normal * 0.076 + tangent * horizontalOffset + vertical * (0.030 + verticalOffset)
+        tile.orientation = simd_quatf(from: [0, 0, 1], to: normal)
+        tile.scale = [0.28, 0.28, 0.28]
+        return tile
+    }
+
+    private static func stableTangent(for normal: SIMD3<Float>) -> SIMD3<Float> {
+        let up = SIMD3<Float>(0, 1, 0)
+        let east = simd_cross(up, normal)
+        if simd_length(east) > 0.001 {
+            return normalize(east)
+        }
+        return normalize(simd_cross(SIMD3<Float>(1, 0, 0), normal))
     }
 
     private static func makeShockPulse(for event: CommodityEvent, scenarioSeverity: Double) -> Entity {
@@ -165,7 +218,7 @@ struct HorizonImmersiveView: View {
         root.position = position
         let pulseScale = Float(1.0 + abs(scenarioSeverity) / 90)
         for index in 0..<3 {
-            let shell = ModelEntity(mesh: .generateSphere(radius: 0.026 + Float(index) * 0.016), materials: [emissiveMaterial(color: UIColor(red: 1, green: 0.09, blue: 0.27, alpha: 1), alpha: 0.22 - CGFloat(index) * 0.05)])
+            let shell = ModelEntity(mesh: .generateSphere(radius: 0.014 + Float(index) * 0.009), materials: [emissiveMaterial(color: UIColor(red: 1, green: 0.09, blue: 0.27, alpha: 1), alpha: 0.16 - CGFloat(index) * 0.035)])
             shell.scale = [pulseScale, pulseScale, pulseScale]
             root.addChild(shell)
         }
@@ -233,6 +286,48 @@ struct HorizonImmersiveView: View {
         return cylinder
     }
 
+    private static func earthMesh(radius: Float) -> MeshResource {
+        let latitudeSegments = 48
+        let longitudeSegments = 96
+        var positions: [SIMD3<Float>] = []
+        var normals: [SIMD3<Float>] = []
+        var textureCoordinates: [SIMD2<Float>] = []
+        var indices: [UInt32] = []
+
+        for latIndex in 0...latitudeSegments {
+            let v = Float(latIndex) / Float(latitudeSegments)
+            let latitude = 90 - Double(v) * 180
+
+            for lonIndex in 0...longitudeSegments {
+                let u = Float(lonIndex) / Float(longitudeSegments)
+                let longitude = -180 + Double(u) * 360
+                let position = GlobeMath.latLongTo3D(latitude: latitude, longitude: longitude, radius: radius)
+                positions.append(position)
+                normals.append(normalize(position))
+                textureCoordinates.append([u, 1 - v])
+            }
+        }
+
+        for latIndex in 0..<latitudeSegments {
+            for lonIndex in 0..<longitudeSegments {
+                let current = UInt32(latIndex * (longitudeSegments + 1) + lonIndex)
+                let next = UInt32((latIndex + 1) * (longitudeSegments + 1) + lonIndex)
+                indices.append(contentsOf: [
+                    current, next, current + 1,
+                    current + 1, next, next + 1
+                ])
+            }
+        }
+
+        var descriptor = MeshDescriptor(name: "LatLong Blue Marble Earth")
+        descriptor.positions = MeshBuffers.Positions(positions)
+        descriptor.normals = MeshBuffers.Normals(normals)
+        descriptor.textureCoordinates = MeshBuffers.TextureCoordinates(textureCoordinates)
+        descriptor.primitives = .triangles(indices)
+
+        return (try? MeshResource.generate(from: [descriptor])) ?? .generateSphere(radius: radius)
+    }
+
     private static func earthMaterial() -> PhysicallyBasedMaterial {
         var material = PhysicallyBasedMaterial()
         if let blueMarble = try? TextureResource.load(named: "EarthBlueMarble") {
@@ -270,8 +365,143 @@ struct HorizonImmersiveView: View {
         }
     }
 
+    private static func eventGlyph(for event: CommodityEvent) -> String {
+        let headline = event.headline.lowercased()
+        if headline.contains("hurricane") {
+            return "🌀"
+        }
+        if headline.contains("drought") || headline.contains("heat") {
+            return "☀️"
+        }
+        if headline.contains("naval") || headline.contains("blockade") {
+            return "⚓️"
+        }
+        if headline.contains("port") || headline.contains("rerouting") || headline.contains("corridor") {
+            return "🚢"
+        }
+        if headline.contains("mine") || headline.contains("power grid") {
+            return "⚡️"
+        }
+        if headline.contains("central bank") || headline.contains("reserve") {
+            return "🏦"
+        }
+        if headline.contains("currency") || headline.contains("hedge") {
+            return "💱"
+        }
+
+        switch event.category {
+        case .weather: return "☀️"
+        case .supplyChain: return "🚢"
+        case .geopolitical: return "⚠️"
+        case .macro: return "◆"
+        }
+    }
+
     private static func routeColor(for scenarioSeverity: Double) -> UIColor {
         scenarioSeverity >= 0 ? UIColor(red: 1, green: 0.09, blue: 0.27, alpha: 0.78) : UIColor(red: 0, green: 0.90, blue: 0.46, alpha: 0.78)
+    }
+
+    private static func makeGeoLabel(_ label: GeoLabel) -> Entity {
+        let normal = normalize(GlobeMath.latLongTo3D(latitude: label.coordinate.latitude, longitude: label.coordinate.longitude, radius: 1))
+        let text = Entity()
+        text.components.set(ViewAttachmentComponent(rootView: GlobeMapLabelView(label: label)))
+        text.name = "Geo Label \(label.title)"
+        text.position = normal * label.radius
+        text.orientation = simd_quatf(from: [0, 0, 1], to: normal)
+        text.scale = [label.scale, label.scale, label.scale]
+        return text
+    }
+
+    private struct GeoLabel {
+        let title: String
+        let coordinate: GeoCoordinate
+        let radius: Float
+        let fontSize: Float
+        let scale: Float
+        let color: UIColor
+        let alpha: CGFloat
+    }
+
+    private struct GlobeMapLabelView: View {
+        let label: GeoLabel
+
+        var body: some View {
+            Text(label.title)
+                .font(.system(size: CGFloat(label.fontSize), weight: .bold, design: .rounded))
+                .foregroundStyle(Color(uiColor: label.color).opacity(label.alpha))
+                .lineLimit(1)
+                .minimumScaleFactor(0.65)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .frame(width: 124, height: 24)
+                .background(.black.opacity(0.42), in: Capsule())
+                .overlay(Capsule().stroke(Color(uiColor: label.color).opacity(0.52), lineWidth: 0.8))
+        }
+    }
+
+    private struct EventMapMarkerView: View {
+        let event: CommodityEvent
+
+        var body: some View {
+            VStack(spacing: 2) {
+                Text(HorizonImmersiveView.eventGlyph(for: event))
+                    .font(.system(size: 26, weight: .black))
+                    .frame(width: 38, height: 38)
+                    .background(markerColor.opacity(0.46), in: Circle())
+                    .background(.black.opacity(0.58), in: Circle())
+                    .overlay(Circle().stroke(markerColor.opacity(1.0), lineWidth: 1.8))
+                    .shadow(color: markerColor.opacity(0.92), radius: 8)
+
+                Text(event.commodity.symbol)
+                    .font(.system(size: 7, weight: .bold, design: .monospaced))
+                    .foregroundStyle(markerColor)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(.black.opacity(0.62), in: Capsule())
+            }
+            .frame(width: 44, height: 50)
+        }
+
+        private var markerColor: Color {
+            event.mapAccentColor
+        }
+    }
+
+    private struct EventMapNewsTileView: View {
+        let event: CommodityEvent
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 5) {
+                    Text(HorizonImmersiveView.eventGlyph(for: event))
+                        .font(.system(size: 13, weight: .bold))
+                    Text(event.commodity.symbol)
+                        .font(.system(size: 9, weight: .bold, design: .monospaced))
+                        .foregroundStyle(event.mapAccentColor)
+                    Spacer(minLength: 4)
+                    Text(event.volumeImpact)
+                        .font(.system(size: 8, weight: .bold, design: .monospaced))
+                        .foregroundStyle(event.severity >= 0 ? Color(red: 1, green: 0.20, blue: 0.32) : Color(red: 0, green: 0.95, blue: 0.52))
+                }
+
+                Text(event.headline)
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(event.metricImpact)
+                    .font(.system(size: 8.5, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+            }
+            .padding(8)
+            .frame(width: 164, height: 78, alignment: .leading)
+            .background(.ultraThinMaterial.opacity(0.94), in: RoundedRectangle(cornerRadius: 8))
+            .background(Color(red: 0.02, green: 0.05, blue: 0.08).opacity(0.86), in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8).stroke(event.mapAccentColor.opacity(0.74), lineWidth: 1))
+            .shadow(color: event.mapAccentColor.opacity(0.30), radius: 10)
+        }
     }
 
     private static let landMasses: [(coordinate: GeoCoordinate, radius: Float, scale: SIMD3<Float>)] = [
@@ -283,10 +513,50 @@ struct HorizonImmersiveView: View {
         (GeoCoordinate(latitude: 35, longitude: 103), 0.070, [1.8, 0.38, 1.0]),
         (GeoCoordinate(latitude: -25, longitude: 134), 0.052, [1.6, 0.34, 1.0])
     ]
+
+    private static let geoLabels: [GeoLabel] = {
+        let land = UIColor(white: 0.96, alpha: 1)
+        let water = UIColor(red: 0, green: 0.90, blue: 1, alpha: 1)
+        let sea = UIColor(red: 0.58, green: 0.96, blue: 1, alpha: 1)
+        return [
+            GeoLabel(title: "North America", coordinate: GeoCoordinate(latitude: 48, longitude: -101), radius: 0.236, fontSize: 12, scale: 0.58, color: land, alpha: 0.90),
+            GeoLabel(title: "South America", coordinate: GeoCoordinate(latitude: -15, longitude: -60), radius: 0.236, fontSize: 12, scale: 0.58, color: land, alpha: 0.90),
+            GeoLabel(title: "Europe", coordinate: GeoCoordinate(latitude: 52, longitude: 12), radius: 0.236, fontSize: 11, scale: 0.52, color: land, alpha: 0.92),
+            GeoLabel(title: "Africa", coordinate: GeoCoordinate(latitude: 2, longitude: 21), radius: 0.236, fontSize: 12, scale: 0.54, color: land, alpha: 0.92),
+            GeoLabel(title: "Asia", coordinate: GeoCoordinate(latitude: 45, longitude: 90), radius: 0.236, fontSize: 13, scale: 0.58, color: land, alpha: 0.92),
+            GeoLabel(title: "Australia", coordinate: GeoCoordinate(latitude: -25, longitude: 134), radius: 0.236, fontSize: 11, scale: 0.52, color: land, alpha: 0.90),
+            GeoLabel(title: "Antarctica", coordinate: GeoCoordinate(latitude: -78, longitude: 25), radius: 0.236, fontSize: 10, scale: 0.50, color: land, alpha: 0.78),
+            GeoLabel(title: "Pacific Ocean", coordinate: GeoCoordinate(latitude: 0, longitude: -155), radius: 0.238, fontSize: 11, scale: 0.54, color: water, alpha: 0.82),
+            GeoLabel(title: "Atlantic Ocean", coordinate: GeoCoordinate(latitude: 2, longitude: -35), radius: 0.238, fontSize: 11, scale: 0.54, color: water, alpha: 0.82),
+            GeoLabel(title: "Indian Ocean", coordinate: GeoCoordinate(latitude: -18, longitude: 82), radius: 0.238, fontSize: 11, scale: 0.54, color: water, alpha: 0.82),
+            GeoLabel(title: "Arctic Ocean", coordinate: GeoCoordinate(latitude: 78, longitude: -10), radius: 0.238, fontSize: 10, scale: 0.50, color: water, alpha: 0.74),
+            GeoLabel(title: "Southern Ocean", coordinate: GeoCoordinate(latitude: -60, longitude: 115), radius: 0.238, fontSize: 10, scale: 0.50, color: water, alpha: 0.74),
+            GeoLabel(title: "Mediterranean", coordinate: GeoCoordinate(latitude: 36, longitude: 16), radius: 0.239, fontSize: 9, scale: 0.42, color: sea, alpha: 0.86),
+            GeoLabel(title: "Black Sea", coordinate: GeoCoordinate(latitude: 43.5, longitude: 34), radius: 0.239, fontSize: 9, scale: 0.42, color: sea, alpha: 0.86),
+            GeoLabel(title: "Red Sea", coordinate: GeoCoordinate(latitude: 20, longitude: 38), radius: 0.239, fontSize: 9, scale: 0.42, color: sea, alpha: 0.88),
+            GeoLabel(title: "Arabian Sea", coordinate: GeoCoordinate(latitude: 15, longitude: 64), radius: 0.239, fontSize: 9, scale: 0.42, color: sea, alpha: 0.88),
+            GeoLabel(title: "South China Sea", coordinate: GeoCoordinate(latitude: 12, longitude: 114), radius: 0.239, fontSize: 9, scale: 0.42, color: sea, alpha: 0.88),
+            GeoLabel(title: "Gulf of Mexico", coordinate: GeoCoordinate(latitude: 24, longitude: -90), radius: 0.239, fontSize: 9, scale: 0.42, color: sea, alpha: 0.88)
+        ]
+    }()
+}
+
+private extension CommodityEvent {
+    var mapAccentColor: Color {
+        switch category {
+        case .weather:
+            Color(red: 1, green: 0.72, blue: 0)
+        case .geopolitical, .macro:
+            Color(red: 0, green: 0.92, blue: 1)
+        case .supplyChain:
+            severity >= 0 ? Color(red: 1, green: 0.12, blue: 0.28) : Color(red: 0, green: 0.94, blue: 0.50)
+        }
+    }
 }
 
 private enum EntityNames {
     static let root = "CME Horizon Root"
+    static let globeSystem = "Globe Coordinate System"
     static let globe = "Photorealistic PBR Globe"
     static let atmosphere = "Fresnel Atmosphere Glow"
     static let dynamic = "Dynamic Commodity Routes and Pins"

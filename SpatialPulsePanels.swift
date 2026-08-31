@@ -4,26 +4,29 @@ struct CommodityRibbonView: View {
     @Bindable var viewModel: CommodityIntelligenceViewModel
 
     var body: some View {
-        HStack(spacing: 10) {
-            ForEach(Commodity.allCases) { commodity in
-                Button {
-                    withAnimation(.smooth(duration: 0.45)) {
-                        viewModel.selectCommodity(commodity)
+        ScrollView(.horizontal) {
+            HStack(spacing: 8) {
+                ForEach(Commodity.allCases) { commodity in
+                    Button {
+                        withAnimation(.smooth(duration: 0.45)) {
+                            viewModel.selectCommodity(commodity)
+                        }
+                    } label: {
+                        VStack(spacing: 2) {
+                            Text(commodity.symbol)
+                                .font(.system(size: 17, weight: .bold, design: .rounded))
+                            Text(commodity.assetClass.rawValue)
+                                .font(.system(size: 10, weight: .medium))
+                        }
+                        .frame(width: 76, height: 54)
                     }
-                } label: {
-                    VStack(spacing: 2) {
-                        Text(commodity.symbol)
-                            .font(.system(size: 19, weight: .bold, design: .rounded))
-                        Text(commodity.assetClass.rawValue)
-                            .font(.system(size: 11, weight: .medium))
-                    }
-                    .frame(width: 116, height: 58)
+                    .buttonStyle(.plain)
+                    .background(selectedBackground(for: commodity), in: RoundedRectangle(cornerRadius: 8))
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(commodity == viewModel.selectedCommodity ? Color.cyan.opacity(0.85) : Color.white.opacity(0.12), lineWidth: 1))
                 }
-                .buttonStyle(.plain)
-                .background(selectedBackground(for: commodity), in: RoundedRectangle(cornerRadius: 8))
-                .overlay(RoundedRectangle(cornerRadius: 8).stroke(commodity == viewModel.selectedCommodity ? Color.cyan.opacity(0.85) : Color.white.opacity(0.12), lineWidth: 1))
             }
         }
+        .scrollIndicators(.hidden)
         .padding(12)
         .glassPanel(border: Color.cyan.opacity(0.45))
     }
@@ -46,13 +49,19 @@ struct NewsStreamView: View {
                     .foregroundStyle(.secondary)
             }
 
-            ForEach(viewModel.currentEvents) { event in
-                EventCard(event: event, isSelected: event == viewModel.selectedEvent) {
-                    withAnimation(.smooth(duration: 0.4)) {
-                        viewModel.focus(on: event)
+            ScrollView {
+                VStack(spacing: 12) {
+                    ForEach(viewModel.currentEvents) { event in
+                        EventCard(event: event, isSelected: event == viewModel.selectedEvent) {
+                            withAnimation(.smooth(duration: 0.4)) {
+                                viewModel.focus(on: event)
+                            }
+                        }
                     }
                 }
             }
+            .frame(maxHeight: 390)
+            .scrollIndicators(.hidden)
         }
         .padding(22)
         .glassPanel(border: Color.cyan.opacity(0.38))
