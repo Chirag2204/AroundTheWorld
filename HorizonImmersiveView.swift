@@ -80,7 +80,7 @@ struct HorizonImmersiveView: View {
             }
             Attachment(id: AttachmentID.chart) {
                 MarketChartView(viewModel: viewModel)
-                    .frame(width: 520)
+                    .frame(width: 430)
             }
             Attachment(id: AttachmentID.slider) {
                 PredictiveScenarioSlider(viewModel: viewModel)
@@ -186,9 +186,9 @@ struct HorizonImmersiveView: View {
         let controlScale = compactPanelScale * 2.0 / 3.0
         attach(AttachmentID.ribbon, from: attachments, to: root, position: [0, 1.74, dashboardDepth], scale: [controlScale, controlScale, controlScale])
         attach(AttachmentID.news, from: attachments, to: root, position: [-1.38, 1.08, dashboardDepth], scale: [panelScale, panelScale, panelScale])
-        attach(AttachmentID.chart, from: attachments, to: root, position: [1.44, 1.08, dashboardDepth], scale: [panelScale, panelScale, panelScale])
+        attach(AttachmentID.chart, from: attachments, to: root, position: [1.38, 1.08, dashboardDepth], scale: [panelScale, panelScale, panelScale])
         attach(AttachmentID.slider, from: attachments, to: root, position: [0, 0.34, dashboardDepth], scale: [panelScale, panelScale, panelScale])
-        attach(AttachmentID.portfolio, from: attachments, to: root, position: [1.88, 1.08, 0.02], scale: [panelScale, panelScale, panelScale], yRotation: -.pi / 2)
+        attach(AttachmentID.portfolio, from: attachments, to: root, position: [1.88, 1.08, 0.34], scale: [panelScale, panelScale, panelScale], yRotation: -.pi / 2)
         attach(AttachmentID.callout, from: attachments, to: root, position: [0, 1.08, dashboardDepth], scale: [panelScale, panelScale, panelScale])
         attach(AttachmentID.volSpaceLaunch, from: attachments, to: root, position: [1.6, 1.74, dashboardDepth], scale: [controlScale, controlScale, controlScale])
     }
