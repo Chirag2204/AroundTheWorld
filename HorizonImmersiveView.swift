@@ -3,6 +3,7 @@ import RealityKit
 import UIKit
 import CoreText
 import simd
+import Spatial
 
 struct HorizonImmersiveView: View {
     private static let globeCenterY: Float = 1.02
@@ -15,9 +16,18 @@ struct HorizonImmersiveView: View {
     private static let dashboardDepth: Float = -1.08
 
     @Environment(AppModel.self) private var appModel
+    @Environment(\.openImmersiveSpace) private var openImmersiveSpace
+    @Environment(\.dismissImmersiveSpace) private var dismissImmersiveSpace
     @Bindable var viewModel: CommodityIntelligenceViewModel
     @State private var globeDragStartRotation = simd_quatf(angle: 0, axis: [0, 1, 0])
     @State private var isDraggingGlobe = false
+    @State private var globeRotateStartRotation = simd_quatf(angle: 0, axis: [0, 1, 0])
+    @State private var isRotatingGlobeTwoHanded = false
+    @State private var horizonRender = HorizonRenderState()
+    // Guards against a double-tap (or a Simulator-duplicated click event) firing
+    // enterVolSpace() twice concurrently, which races two overlapping
+    // dismiss/open ImmersiveSpace transitions and crashes the app.
+    @State private var isTransitioningRooms = false
 
     var body: some View {
         RealityView { content, attachments in
@@ -28,22 +38,36 @@ struct HorizonImmersiveView: View {
             sceneRoot.addChild(Self.makeTradingArena())
             sceneRoot.addChild(Self.makeLightRig())
             sceneRoot.addChild(Self.makeGlobeSystem(viewModel: viewModel))
+            horizonRender.renderedDynamicVersion = viewModel.dynamicContentVersion
             Self.placeAttachments(in: sceneRoot, attachments: attachments)
         } update: { content, attachments in
-            guard let sceneRoot = content.entities.first(where: { $0.name == EntityNames.root }) else { return }
-            if let globeSystem = sceneRoot.findEntity(named: EntityNames.globeSystem) {
-                if viewModel.isRotatingGlobeInteractively {
+            // Stop all RealityKit updates while dismissing -- prevents content.animate()
+            // calls from scheduling compositor transactions into a scene being torn down,
+            // which contributes to the IOSurface race on the next openImmersiveSpace.
+            guard !isTransitioningRooms else { return }
+            guard let sceneRoot = content.entities.first(where: { $0.name == EntityNames.root }),
+                  let globeSystem = sceneRoot.findEntity(named: EntityNames.globeSystem) else { return }
+
+            // Globe rotation is always a cheap transform — never rebuilds meshes.
+            if viewModel.isRotatingGlobeInteractively {
+                globeSystem.orientation = viewModel.rotationToFocusedCoordinate()
+            } else {
+                content.animate {
                     globeSystem.orientation = viewModel.rotationToFocusedCoordinate()
-                } else {
-                    content.animate {
-                        globeSystem.orientation = viewModel.rotationToFocusedCoordinate()
-                    }
-                    if let dynamic = globeSystem.findEntity(named: EntityNames.dynamic) {
-                        dynamic.removeFromParent()
-                    }
-                    globeSystem.addChild(Self.makeDynamicContent(viewModel: viewModel))
                 }
             }
+
+            // Only tear down and rebuild the procedural mesh entities (routes,
+            // pins, shock pulses) when content-relevant data actually changed.
+            // This prevents in-flight mesh compilation from racing with dismissal.
+            if horizonRender.renderedDynamicVersion != viewModel.dynamicContentVersion {
+                horizonRender.renderedDynamicVersion = viewModel.dynamicContentVersion
+                if let dynamic = globeSystem.findEntity(named: EntityNames.dynamic) {
+                    dynamic.removeFromParent()
+                }
+                globeSystem.addChild(Self.makeDynamicContent(viewModel: viewModel))
+            }
+
             Self.placeAttachments(in: sceneRoot, attachments: attachments)
         } attachments: {
             Attachment(id: AttachmentID.ribbon) {
@@ -64,6 +88,16 @@ struct HorizonImmersiveView: View {
             }
             Attachment(id: AttachmentID.callout) {
                 EventCalloutView(event: viewModel.selectedEvent)
+            }
+            Attachment(id: AttachmentID.volSpaceLaunch) {
+                RoomSwitchButton(title: "VolSpace", systemImage: "chart.xyaxis.line", tint: Color(red: 0.55, green: 0.25, blue: 0.95), isDisabled: isTransitioningRooms) {
+                    guard !isTransitioningRooms else { return }
+                    isTransitioningRooms = true
+                    Task {
+                        await enterVolSpace()
+                        isTransitioningRooms = false
+                    }
+                }
             }
         }
         .gesture(
@@ -94,6 +128,54 @@ struct HorizonImmersiveView: View {
                     globeDragStartRotation = viewModel.manualGlobeRotation
                 }
         )
+        .simultaneousGesture(
+            RotateGesture3D()
+                .targetedToAnyEntity()
+                .onChanged { value in
+                    guard EntityNames.isGlobeRotationTarget(value.entity.name) else { return }
+                    if !isRotatingGlobeTwoHanded {
+                        isRotatingGlobeTwoHanded = true
+                        viewModel.isRotatingGlobeInteractively = true
+                        globeRotateStartRotation = viewModel.manualGlobeRotation
+                    }
+                    viewModel.rotateGlobe(from: globeRotateStartRotation, rotation: value.rotation)
+                }
+                .onEnded { _ in
+                    isRotatingGlobeTwoHanded = false
+                    viewModel.isRotatingGlobeInteractively = false
+                    globeRotateStartRotation = viewModel.manualGlobeRotation
+                }
+        )
+    }
+
+    private func enterVolSpace() async {
+        appModel.immersiveSpaceState = .inTransition
+        await dismissImmersiveSpace()
+        // The Horizon scene has many ViewAttachmentComponent-hosted SwiftUI views
+        // (geo labels, node cards, event glyphs/tiles — 50+ compositor surfaces).
+        // The IOSurface pool needs time to drain before the new space can claim
+        // surfaces; 800 ms is enough headroom on device even under moderate load.
+        try? await Task.sleep(for: .milliseconds(800))
+        appModel.volSpaceImmersiveSpaceState = .inTransition
+        switch await openImmersiveSpace(id: appModel.volSpaceImmersiveSpaceID) {
+        case .opened:
+            appModel.volSpaceImmersiveSpaceState = .open
+        case .userCancelled, .error:
+            fallthrough
+        @unknown default:
+            appModel.volSpaceImmersiveSpaceState = .closed
+            appModel.immersiveSpaceState = .inTransition
+            // Give the compositor additional time before the recovery open.
+            try? await Task.sleep(for: .milliseconds(600))
+            switch await openImmersiveSpace(id: appModel.immersiveSpaceID) {
+            case .opened:
+                appModel.immersiveSpaceState = .open
+            case .userCancelled, .error:
+                fallthrough
+            @unknown default:
+                appModel.immersiveSpaceState = .closed
+            }
+        }
     }
 
     private static func placeAttachments(in root: Entity, attachments: RealityViewAttachments) {
@@ -103,6 +185,7 @@ struct HorizonImmersiveView: View {
         attach(AttachmentID.chart, from: attachments, to: root, position: [1.44, 1.08, dashboardDepth], scale: [panelScale, panelScale, panelScale])
         attach(AttachmentID.slider, from: attachments, to: root, position: [0, 0.36, dashboardDepth], scale: [controlScale, controlScale, controlScale])
         attach(AttachmentID.callout, from: attachments, to: root, position: [0, 1.08, dashboardDepth], scale: [panelScale, panelScale, panelScale])
+        attach(AttachmentID.volSpaceLaunch, from: attachments, to: root, position: [1.6, 1.74, dashboardDepth], scale: [controlScale, controlScale, controlScale])
     }
 
     private static func attach(_ id: String, from attachments: RealityViewAttachments, to root: Entity, position: SIMD3<Float>, scale: SIMD3<Float>) {
@@ -124,6 +207,46 @@ struct HorizonImmersiveView: View {
         root.addChild(makeGlobeEntity())
         root.addChild(makeAtmosphereEntity())
         root.addChild(makeDynamicContent(viewModel: viewModel))
+        root.addChild(makeHubNodes(viewModel: viewModel))
+        return root
+    }
+
+    /// Persistent (created once, not rebuilt on every focus change) set of
+    /// NodeCardView attachments anchored at each CommodityNode's hub coordinate.
+    /// Each card reads its own live values from the view model by id, so it
+    /// stays reactive to the 1.5s micro-price feed without needing to be
+    /// recreated the way the selection-dependent dynamic content is.
+    private static func makeHubNodes(viewModel: CommodityIntelligenceViewModel) -> Entity {
+        let root = Entity()
+        root.name = EntityNames.hubNodes
+        for node in viewModel.commodityNodes {
+            let normal = normalize(GlobeMath.latLongTo3D(latitude: node.latitude, longitude: node.longitude, radius: 1))
+            let markerPosition = GlobeMath.latLongTo3D(latitude: node.latitude, longitude: node.longitude, radius: 0.226)
+            let cardPosition = normal * 0.34
+
+            let marker = ModelEntity(mesh: .generateSphere(radius: 0.0052 * globeMarkerScale), materials: [emissiveMaterial(color: UIColor(red: 0, green: 0.90, blue: 1, alpha: 1), alpha: 1.0)])
+            marker.name = EntityNames.hubMarkerName(for: node)
+            marker.position = markerPosition
+            root.addChild(marker)
+
+            let card = Entity()
+            card.name = EntityNames.hubMarkerName(for: node)
+            card.components.set(ViewAttachmentComponent(rootView: NodeCardView(viewModel: viewModel, nodeID: node.id) { selected in
+                withAnimation(.smooth(duration: 0.45)) {
+                    viewModel.selectNode(selected)
+                }
+            }))
+            card.position = cardPosition
+            card.orientation = simd_quatf(from: [0, 0, 1], to: normal)
+            let cardScale = Float(0.30) * globeOverlayScale
+            card.scale = [cardScale, cardScale, cardScale]
+            card.components.set(InputTargetComponent())
+            card.components.set(CollisionComponent(shapes: [.generateBox(size: [0.052, 0.062, 0.01])]))
+            card.components.set(HoverEffectComponent())
+            root.addChild(card)
+
+            root.addChild(cylinderBetween(markerPosition, cardPosition, radius: 0.0009 * globeMarkerScale, color: UIColor(red: 0, green: 0.90, blue: 1, alpha: 0.55)))
+        }
         return root
     }
 
@@ -602,6 +725,11 @@ private extension CommodityEvent {
     }
 }
 
+@MainActor
+private final class HorizonRenderState {
+    var renderedDynamicVersion = -1
+}
+
 private enum EntityNames {
     static let root = "CME Horizon Root"
     static let globeSystem = "Globe Coordinate System"
@@ -610,9 +738,14 @@ private enum EntityNames {
     static let atmosphere = "Fresnel Atmosphere Glow"
     static let dynamic = "Dynamic Commodity Routes and Pins"
     static let shock = "Selected Shock Pulse"
+    static let hubNodes = "Commodity Hub Nodes"
 
     static func pinName(for event: CommodityEvent) -> String {
         "Pin-\(event.id.uuidString)"
+    }
+
+    static func hubMarkerName(for node: CommodityNode) -> String {
+        "Hub-\(node.id.uuidString)"
     }
 
     static func isGlobeRotationTarget(_ name: String) -> Bool {
@@ -626,4 +759,5 @@ private enum AttachmentID {
     static let chart = "market-chart"
     static let slider = "scenario-slider"
     static let callout = "event-callout"
+    static let volSpaceLaunch = "volspace-launch"
 }

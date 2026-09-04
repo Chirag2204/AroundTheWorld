@@ -5,7 +5,9 @@ import SwiftUI
 final class AppModel {
     let launcherWindowID = "LauncherWindow"
     let immersiveSpaceID = "ImmersiveSpace"
+    let volSpaceImmersiveSpaceID = "VolSpaceSpace"
     let intelligence = CommodityIntelligenceViewModel()
+    let volSpace = VolSpaceViewModel()
 
     enum ImmersiveSpaceState {
         case closed
@@ -14,4 +16,5 @@ final class AppModel {
     }
 
     var immersiveSpaceState = ImmersiveSpaceState.closed
+    var volSpaceImmersiveSpaceState = ImmersiveSpaceState.closed
 }

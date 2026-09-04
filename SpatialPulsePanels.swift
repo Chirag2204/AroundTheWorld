@@ -241,6 +241,33 @@ struct StartupLauncherView: View {
     }
 }
 
+/// A small floating button used to jump between immersive "rooms" (e.g.
+/// CME Horizon <-> VolSpace). Reused on both sides of the trip so the
+/// affordance looks and behaves identically in both rooms.
+struct RoomSwitchButton: View {
+    let title: String
+    let systemImage: String
+    let tint: Color
+    var isDisabled: Bool = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 6) {
+                Image(systemName: systemImage)
+                    .font(.system(size: 22, weight: .bold))
+                Text(title)
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .frame(width: 108, height: 72)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(tint)
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.5 : 1.0)
+    }
+}
+
 extension View {
     func glassPanel(border: Color) -> some View {
         self

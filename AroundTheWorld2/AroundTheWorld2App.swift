@@ -17,5 +17,11 @@ struct AroundTheWorld2App: App {
                 .environment(appModel)
         }
         .immersionStyle(selection: .constant(.mixed), in: .mixed)
+
+        ImmersiveSpace(id: appModel.volSpaceImmersiveSpaceID) {
+            VolSpaceImmersiveView(viewModel: appModel.volSpace)
+                .environment(appModel)
+        }
+        .immersionStyle(selection: .constant(.mixed), in: .mixed)
     }
 }
