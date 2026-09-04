@@ -84,7 +84,11 @@ struct HorizonImmersiveView: View {
             }
             Attachment(id: AttachmentID.slider) {
                 PredictiveScenarioSlider(viewModel: viewModel)
-                    .frame(width: 1260)
+                    .frame(width: 840)
+            }
+            Attachment(id: AttachmentID.portfolio) {
+                PortfolioTileView(viewModel: viewModel)
+                    .frame(width: 425, height: 430)
             }
             Attachment(id: AttachmentID.callout) {
                 EventCalloutView(event: viewModel.selectedEvent)
@@ -183,19 +187,20 @@ struct HorizonImmersiveView: View {
         attach(AttachmentID.ribbon, from: attachments, to: root, position: [0, 1.74, dashboardDepth], scale: [controlScale, controlScale, controlScale])
         attach(AttachmentID.news, from: attachments, to: root, position: [-1.38, 1.08, dashboardDepth], scale: [panelScale, panelScale, panelScale])
         attach(AttachmentID.chart, from: attachments, to: root, position: [1.44, 1.08, dashboardDepth], scale: [panelScale, panelScale, panelScale])
-        attach(AttachmentID.slider, from: attachments, to: root, position: [0, 0.36, dashboardDepth], scale: [controlScale, controlScale, controlScale])
+        attach(AttachmentID.slider, from: attachments, to: root, position: [0, 0.34, dashboardDepth], scale: [panelScale, panelScale, panelScale])
+        attach(AttachmentID.portfolio, from: attachments, to: root, position: [1.88, 1.08, 0.02], scale: [panelScale, panelScale, panelScale], yRotation: -.pi / 2)
         attach(AttachmentID.callout, from: attachments, to: root, position: [0, 1.08, dashboardDepth], scale: [panelScale, panelScale, panelScale])
         attach(AttachmentID.volSpaceLaunch, from: attachments, to: root, position: [1.6, 1.74, dashboardDepth], scale: [controlScale, controlScale, controlScale])
     }
 
-    private static func attach(_ id: String, from attachments: RealityViewAttachments, to root: Entity, position: SIMD3<Float>, scale: SIMD3<Float>) {
+    private static func attach(_ id: String, from attachments: RealityViewAttachments, to root: Entity, position: SIMD3<Float>, scale: SIMD3<Float>, yRotation: Float = 0) {
         guard let entity = attachments.entity(for: id) else { return }
         if entity.parent == nil {
             root.addChild(entity)
         }
         entity.position = position
         entity.scale = scale
-        entity.orientation = simd_quatf(angle: 0, axis: [0, 1, 0])
+        entity.orientation = simd_quatf(angle: yRotation, axis: [0, 1, 0])
     }
 
     private static func makeGlobeSystem(viewModel: CommodityIntelligenceViewModel) -> Entity {
@@ -758,6 +763,7 @@ private enum AttachmentID {
     static let news = "news-stream"
     static let chart = "market-chart"
     static let slider = "scenario-slider"
+    static let portfolio = "portfolio-tile"
     static let callout = "event-callout"
     static let volSpaceLaunch = "volspace-launch"
 }
