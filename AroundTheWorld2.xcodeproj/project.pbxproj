@@ -12,6 +12,13 @@
 		8961F4723039EC08001175CC /* MarketChartView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8961F4713039EC08001175CC /* MarketChartView.swift */; };
 		8961F4743039EC35001175CC /* SpatialPulsePanels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8961F4733039EC35001175CC /* SpatialPulsePanels.swift */; };
 		8961F4763039EC7F001175CC /* HorizonImmersiveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8961F4753039EC7F001175CC /* HorizonImmersiveView.swift */; };
+		FDC7AE3153ED44DCA6F7A4F7 /* SpatialMath.swift in Sources */ = {isa = PBXBuildFile; fileRef = D9F67D44F53F441A8916FBD2 /* SpatialMath.swift */; };
+		A560B59840D742A78FEAAB1E /* NodeCardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04131A7A1DBD4EC5A2AB4589 /* NodeCardView.swift */; };
+		067241296F4F4DFE864ACB11 /* VolSpaceModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8305CA8842DD495A8BD62EF7 /* VolSpaceModels.swift */; };
+		923EF6F4C74247B6AD9D958F /* VolSpaceMesh.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8279B58D02EC404EB1214EF6 /* VolSpaceMesh.swift */; };
+		CA8438A8C5304009B59649A4 /* VolSpaceViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = DA9443ED3215426CA9615F71 /* VolSpaceViewModel.swift */; };
+		543B2905613F473F835FF31D /* VolSpaceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 709A3C4AF15D446188621FC5 /* VolSpaceViews.swift */; };
+		184DE9FF13974670AC1552D6 /* VolSpaceImmersiveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB2E84FBD3F847B6BCDB0C7F /* VolSpaceImmersiveView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -21,6 +28,13 @@
 		8961F4713039EC08001175CC /* MarketChartView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarketChartView.swift; sourceTree = "<group>"; };
 		8961F4733039EC35001175CC /* SpatialPulsePanels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpatialPulsePanels.swift; sourceTree = "<group>"; };
 		8961F4753039EC7F001175CC /* HorizonImmersiveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HorizonImmersiveView.swift; sourceTree = "<group>"; };
+		D9F67D44F53F441A8916FBD2 /* SpatialMath.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpatialMath.swift; sourceTree = "<group>"; };
+		04131A7A1DBD4EC5A2AB4589 /* NodeCardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeCardView.swift; sourceTree = "<group>"; };
+		8305CA8842DD495A8BD62EF7 /* VolSpaceModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolSpaceModels.swift; sourceTree = "<group>"; };
+		8279B58D02EC404EB1214EF6 /* VolSpaceMesh.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolSpaceMesh.swift; sourceTree = "<group>"; };
+		DA9443ED3215426CA9615F71 /* VolSpaceViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolSpaceViewModel.swift; sourceTree = "<group>"; };
+		709A3C4AF15D446188621FC5 /* VolSpaceViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolSpaceViews.swift; sourceTree = "<group>"; };
+		CB2E84FBD3F847B6BCDB0C7F /* VolSpaceImmersiveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VolSpaceImmersiveView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -66,6 +80,13 @@
 				8961F4713039EC08001175CC /* MarketChartView.swift */,
 				8961F4733039EC35001175CC /* SpatialPulsePanels.swift */,
 				8961F4753039EC7F001175CC /* HorizonImmersiveView.swift */,
+				D9F67D44F53F441A8916FBD2 /* SpatialMath.swift */,
+				04131A7A1DBD4EC5A2AB4589 /* NodeCardView.swift */,
+				8305CA8842DD495A8BD62EF7 /* VolSpaceModels.swift */,
+				8279B58D02EC404EB1214EF6 /* VolSpaceMesh.swift */,
+				DA9443ED3215426CA9615F71 /* VolSpaceViewModel.swift */,
+				709A3C4AF15D446188621FC5 /* VolSpaceViews.swift */,
+				CB2E84FBD3F847B6BCDB0C7F /* VolSpaceImmersiveView.swift */,
 			);
 			sourceTree = "<group>";
 		};
@@ -164,6 +185,13 @@
 				8961F4763039EC7F001175CC /* HorizonImmersiveView.swift in Sources */,
 				8961F4743039EC35001175CC /* SpatialPulsePanels.swift in Sources */,
 				8961F4703039EBD0001175CC /* CommodityIntelligenceViewModel.swift in Sources */,
+				FDC7AE3153ED44DCA6F7A4F7 /* SpatialMath.swift in Sources */,
+				A560B59840D742A78FEAAB1E /* NodeCardView.swift in Sources */,
+				067241296F4F4DFE864ACB11 /* VolSpaceModels.swift in Sources */,
+				923EF6F4C74247B6AD9D958F /* VolSpaceMesh.swift in Sources */,
+				CA8438A8C5304009B59649A4 /* VolSpaceViewModel.swift in Sources */,
+				543B2905613F473F835FF31D /* VolSpaceViews.swift in Sources */,
+				184DE9FF13974670AC1552D6 /* VolSpaceImmersiveView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

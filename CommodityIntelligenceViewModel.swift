@@ -3,6 +3,7 @@ import Observation
 import RealityKit
 import SwiftUI
 import simd
+import Spatial
 
 struct GeoCoordinate: Hashable, Sendable {
     let latitude: Double
@@ -162,6 +163,24 @@ struct ProjectionMetrics: Sendable {
     let routeCompression: Double
 }
 
+/// A physical commodity hub node anchored to a real-world lat/long (e.g. WTI Crude
+/// at the Cushing, OK storage hub, or Natural Gas at Henry Hub). Distinct from
+/// CommodityEvent: nodes are the always-visible spatial cards driven by the live
+/// micro-price feed, rather than transient intelligence/news events.
+struct CommodityNode: Identifiable, Hashable, Sendable {
+    let id: UUID
+    let commodity: Commodity
+    let symbol: String
+    let name: String
+    let latitude: Double
+    let longitude: Double
+    var currentPrice: Double
+    var percentChange: Double
+    var volume: Double
+
+    var coordinate: GeoCoordinate { GeoCoordinate(latitude: latitude, longitude: longitude) }
+}
+
 @MainActor
 @Observable
 final class CommodityIntelligenceViewModel {
@@ -170,6 +189,7 @@ final class CommodityIntelligenceViewModel {
             selectedEvent = events.first { $0.commodity == selectedCommodity }
             focusedCoordinate = selectedEvent?.coordinate ?? selectedCommodity.focusCoordinate
             manualGlobeRotation = simd_quatf(angle: 0, axis: [0, 1, 0])
+            dynamicContentVersion += 1
         }
     }
 
@@ -178,10 +198,13 @@ final class CommodityIntelligenceViewModel {
             if let selectedEvent {
                 focusedCoordinate = selectedEvent.coordinate
             }
+            dynamicContentVersion += 1
         }
     }
 
-    var scenarioSeverity: Double = 0
+    var scenarioSeverity: Double = 0 {
+        didSet { dynamicContentVersion += 1 }
+    }
     var scrubbedCandle: CandleData?
     var focusedCoordinate: GeoCoordinate = Commodity.crude.focusCoordinate
     var manualGlobeRotation = simd_quatf(angle: 0, axis: [0, 1, 0])
@@ -192,18 +215,28 @@ final class CommodityIntelligenceViewModel {
     let routes: [SupplyRoute]
     @ObservationIgnored private var simulationTask: Task<Void, Never>?
     @ObservationIgnored private var simulationTick = 0
+    var commodityNodes: [CommodityNode]
+    @ObservationIgnored private var nodeFeedTask: Task<Void, Never>?
+
+    /// Bumped only when the 3D scene's dynamic geometry needs to change:
+    /// routes, event pins, or shock pulses. Changes to commodity node prices,
+    /// candle data, or globe rotation do NOT increment this.
+    private(set) var dynamicContentVersion = 0
 
     init() {
         events = MockCommodityData.events
         candlesByCommodity = MockCommodityData.candlesByCommodity
         routes = MockCommodityData.routes
+        commodityNodes = MockCommodityData.hubNodes
         selectedEvent = MockCommodityData.events.first { $0.commodity == .crude }
         focusedCoordinate = selectedEvent?.coordinate ?? Commodity.crude.focusCoordinate
         startLiveSimulation()
+        startNodeFeed()
     }
 
     deinit {
         simulationTask?.cancel()
+        nodeFeedTask?.cancel()
     }
 
     var currentEvents: [CommodityEvent] {
@@ -281,6 +314,39 @@ final class CommodityIntelligenceViewModel {
         manualGlobeRotation = pitchRotation * yawRotation * startingRotation
     }
 
+    /// Two-handed pinch rotation (RotateGesture3D) on the globe, composed the same
+    /// way as the single-hand drag rotation above: apply the gesture's delta on
+    /// top of whatever rotation was in effect when the gesture began.
+    func rotateGlobe(from startingRotation: simd_quatf, rotation: Rotation3D) {
+        let axis = SIMD3<Float>(Float(rotation.axis.x), Float(rotation.axis.y), Float(rotation.axis.z))
+        let normalizedAxis = simd_length(axis) > 0.0001 ? normalize(axis) : SIMD3<Float>(0, 1, 0)
+        let delta = simd_quatf(angle: Float(rotation.angle.radians), axis: normalizedAxis)
+        manualGlobeRotation = delta * startingRotation
+    }
+
+    func selectNode(_ node: CommodityNode) {
+        selectedCommodity = node.commodity
+        focusedCoordinate = node.coordinate
+        manualGlobeRotation = simd_quatf(angle: 0, axis: [0, 1, 0])
+    }
+
+    private func startNodeFeed() {
+        let seedNodes = commodityNodes
+        nodeFeedTask = Task { [weak self] in
+            for await update in CommodityNodeFeed.microPriceStream(seedNodes: seedNodes) {
+                guard let self, !Task.isCancelled else { return }
+                withAnimation(.easeInOut(duration: 0.4)) {
+                    for (id, tick) in update {
+                        guard let index = self.commodityNodes.firstIndex(where: { $0.id == id }) else { continue }
+                        self.commodityNodes[index].currentPrice = tick.price
+                        self.commodityNodes[index].percentChange = tick.percentChange
+                        self.commodityNodes[index].volume = tick.volume
+                    }
+                }
+            }
+        }
+    }
+
     private func startLiveSimulation() {
         simulationTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -318,6 +384,8 @@ final class CommodityIntelligenceViewModel {
 
         if event.commodity == selectedCommodity {
             selectedEvent = event
+        } else {
+            dynamicContentVersion += 1
         }
     }
 
@@ -326,43 +394,6 @@ final class CommodityIntelligenceViewModel {
         guard var candles = candlesByCommodity[commodity], candles.count > maximumVisibleCandles else { return }
         candles.removeFirst(candles.count - maximumVisibleCandles)
         candlesByCommodity[commodity] = candles
-    }
-}
-
-enum GlobeMath {
-    static func latLongTo3D(latitude: Double, longitude: Double, radius: Float) -> SIMD3<Float> {
-        let lat = Float(latitude * .pi / 180)
-        let lon = Float(longitude * .pi / 180)
-        let x = radius * cos(lat) * sin(lon)
-        let y = radius * sin(lat)
-        let z = radius * cos(lat) * cos(lon)
-        return SIMD3<Float>(x, y, z)
-    }
-
-    static func rotationToFace(latitude: Double, longitude: Double) -> simd_quatf {
-        let point = normalize(latLongTo3D(latitude: latitude, longitude: longitude, radius: 1))
-        let target = SIMD3<Float>(0, 0, -1)
-        return simd_quatf(from: point, to: target)
-    }
-
-    static func sphericalArc(from origin: GeoCoordinate, to destination: GeoCoordinate, radius: Float, samples: Int = 28, lift: Float = 0.25) -> [SIMD3<Float>] {
-        let start = normalize(latLongTo3D(latitude: origin.latitude, longitude: origin.longitude, radius: radius))
-        let end = normalize(latLongTo3D(latitude: destination.latitude, longitude: destination.longitude, radius: radius))
-        let dotProduct = min(max(simd_dot(start, end), -1), 1)
-        let omega = acos(dotProduct)
-        return (0...samples).map { index in
-            let t = Float(index) / Float(samples)
-            let direction: SIMD3<Float>
-            if omega < 0.0001 {
-                direction = normalize(mix(start, end, t: t))
-            } else {
-                let scaleA = sin((1 - t) * omega) / sin(omega)
-                let scaleB = sin(t * omega) / sin(omega)
-                direction = normalize(start * scaleA + end * scaleB)
-            }
-            let arcLift = sin(t * .pi) * lift
-            return direction * (radius + arcLift)
-        }
     }
 }
 
@@ -396,6 +427,16 @@ private enum MockCommodityData {
         SupplyRoute(commodity: .silver, originCoordinate: GeoCoordinate(latitude: -23.5, longitude: -46.6), destinationCoordinate: GeoCoordinate(latitude: 31.2, longitude: 121.5), volumeCapacity: 0.21, isChoked: false),
         SupplyRoute(commodity: .naturalGas, originCoordinate: GeoCoordinate(latitude: 29.96, longitude: -92.04), destinationCoordinate: GeoCoordinate(latitude: 51.9, longitude: 4.5), volumeCapacity: 1.8, isChoked: false),
         SupplyRoute(commodity: .naturalGas, originCoordinate: GeoCoordinate(latitude: 25.2, longitude: 51.6), destinationCoordinate: GeoCoordinate(latitude: 35.7, longitude: 139.7), volumeCapacity: 2.1, isChoked: true)
+    ]
+
+    static let hubNodes: [CommodityNode] = [
+        CommodityNode(id: UUID(), commodity: .crude, symbol: "CL", name: "WTI Crude — Cushing Hub", latitude: 35.98, longitude: -96.77, currentPrice: 82.40, percentChange: 0.0, volume: 184_000),
+        CommodityNode(id: UUID(), commodity: .crude, symbol: "BRN", name: "Brent Crude — Rotterdam ARA", latitude: 51.92, longitude: 4.48, currentPrice: 86.10, percentChange: 0.0, volume: 221_000),
+        CommodityNode(id: UUID(), commodity: .naturalGas, symbol: "NG", name: "Henry Hub — Erath, LA", latitude: 29.75, longitude: -92.05, currentPrice: 2.45, percentChange: 0.0, volume: 96_000),
+        CommodityNode(id: UUID(), commodity: .naturalGas, symbol: "TTF", name: "Dutch TTF — Rotterdam Hub", latitude: 51.95, longitude: 4.14, currentPrice: 9.85, percentChange: 0.0, volume: 58_000),
+        CommodityNode(id: UUID(), commodity: .corn, symbol: "ZC", name: "Corn — CBOT Chicago Pit", latitude: 41.88, longitude: -87.63, currentPrice: 478.0, percentChange: 0.0, volume: 142_000),
+        CommodityNode(id: UUID(), commodity: .gold, symbol: "GC", name: "Gold — COMEX New York Vault", latitude: 40.71, longitude: -74.00, currentPrice: 2415.0, percentChange: 0.0, volume: 64_000),
+        CommodityNode(id: UUID(), commodity: .silver, symbol: "SI", name: "Silver — COMEX New York Vault", latitude: 40.75, longitude: -73.90, currentPrice: 29.5, percentChange: 0.0, volume: 51_000)
     ]
 
     static let candlesByCommodity: [Commodity: [CandleData]] = [
@@ -522,4 +563,34 @@ private enum MockCommodityData {
             EventTemplate(headline: "Storage report surprise resets Henry Hub prompt risk", category: .macro, coordinate: GeoCoordinate(latitude: 38.9, longitude: -77.0), volumeImpact: "-42 bcf", metricImpact: "Storage -42 bcf | Vol +5 pts")
         ]
     ]
+}
+
+private enum CommodityNodeFeed {
+    /// Simulates a real-time CME market data feed: randomized micro-price
+    /// updates for every hub node, emitted every 1.5 seconds.
+    static func microPriceStream(seedNodes: [CommodityNode]) -> AsyncStream<[UUID: (price: Double, percentChange: Double, volume: Double)]> {
+        AsyncStream { continuation in
+            let task = Task {
+                var lastPrice = Dictionary(uniqueKeysWithValues: seedNodes.map { ($0.id, $0.currentPrice) })
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(1.5))
+                    guard !Task.isCancelled else { break }
+                    var update: [UUID: (price: Double, percentChange: Double, volume: Double)] = [:]
+                    for node in seedNodes {
+                        let previousPrice = lastPrice[node.id] ?? node.currentPrice
+                        let volatility = previousPrice * 0.0018
+                        let delta = Double.random(in: -volatility...volatility)
+                        let newPrice = max(previousPrice * 0.05, previousPrice + delta)
+                        lastPrice[node.id] = newPrice
+                        let percentChange = previousPrice != 0 ? ((newPrice - previousPrice) / previousPrice) * 100 : 0
+                        let volume = Double.random(in: 12_000...480_000)
+                        update[node.id] = (price: newPrice, percentChange: percentChange, volume: volume)
+                    }
+                    continuation.yield(update)
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
 }
