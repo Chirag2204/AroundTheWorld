@@ -4,29 +4,26 @@ struct CommodityRibbonView: View {
     @Bindable var viewModel: CommodityIntelligenceViewModel
 
     var body: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 8) {
-                ForEach(Commodity.allCases) { commodity in
-                    Button {
-                        withAnimation(.smooth(duration: 0.45)) {
-                            viewModel.selectCommodity(commodity)
-                        }
-                    } label: {
-                        VStack(spacing: 2) {
-                            Text(commodity.symbol)
-                                .font(.system(size: 17, weight: .bold, design: .rounded))
-                            Text(commodity.assetClass.rawValue)
-                                .font(.system(size: 10, weight: .medium))
-                        }
-                        .frame(width: 76, height: 54)
+        HStack(spacing: 8) {
+            ForEach(Commodity.allCases) { commodity in
+                Button {
+                    withAnimation(.smooth(duration: 0.45)) {
+                        viewModel.selectCommodity(commodity)
                     }
-                    .buttonStyle(.plain)
-                    .background(selectedBackground(for: commodity), in: RoundedRectangle(cornerRadius: 8))
-                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(commodity == viewModel.selectedCommodity ? Color.cyan.opacity(0.85) : Color.white.opacity(0.12), lineWidth: 1))
+                } label: {
+                    VStack(spacing: 2) {
+                        Text(commodity.symbol)
+                            .font(.system(size: 17, weight: .bold, design: .rounded))
+                        Text(commodity.assetClass.rawValue)
+                            .font(.system(size: 10, weight: .medium))
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 54)
                 }
+                .buttonStyle(.plain)
+                .background(selectedBackground(for: commodity), in: RoundedRectangle(cornerRadius: 8))
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(commodity == viewModel.selectedCommodity ? Color.cyan.opacity(0.85) : Color.white.opacity(0.12), lineWidth: 1))
             }
         }
-        .scrollIndicators(.hidden)
         .padding(12)
         .glassPanel(border: Color.cyan.opacity(0.45))
     }
@@ -164,6 +161,124 @@ struct PredictiveScenarioSlider: View {
 
     private var readoutColor: Color {
         viewModel.scenarioSeverity >= 0 ? Color(red: 1, green: 0.09, blue: 0.27) : Color(red: 0, green: 0.90, blue: 0.46)
+    }
+}
+
+struct PortfolioTileView: View {
+    @Bindable var viewModel: CommodityIntelligenceViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Portfolio")
+                        .font(.system(size: 20, weight: .semibold))
+                    Text("Live positions")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 3) {
+                    Text(viewModel.totalPortfolioMarketValue.formatted(.currency(code: "USD").precision(.fractionLength(0))))
+                        .font(.system(size: 18, weight: .bold, design: .monospaced))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.72)
+                    Text(signedCurrency(viewModel.totalPortfolioProfitLoss))
+                        .font(.system(size: 13, weight: .bold, design: .monospaced))
+                        .foregroundStyle(changeColor(for: viewModel.totalPortfolioProfitLoss))
+                }
+            }
+
+            VStack(spacing: 7) {
+                ForEach(viewModel.portfolioPositions) { position in
+                    PortfolioPositionRow(position: position, viewModel: viewModel)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(18)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .glassPanel(border: changeColor(for: viewModel.totalPortfolioProfitLoss).opacity(0.45))
+    }
+
+    private func signedCurrency(_ value: Double) -> String {
+        let sign = value >= 0 ? "+" : ""
+        return sign + value.formatted(.currency(code: "USD").precision(.fractionLength(0)))
+    }
+
+    private func changeColor(for value: Double) -> Color {
+        value >= 0 ? Color(red: 0, green: 0.90, blue: 0.46) : Color(red: 1, green: 0.09, blue: 0.27)
+    }
+}
+
+private struct PortfolioPositionRow: View {
+    let position: PortfolioPosition
+    let viewModel: CommodityIntelligenceViewModel
+
+    var body: some View {
+        let currentPrice = viewModel.currentPrice(for: position.commodity)
+        let profitLoss = viewModel.profitLoss(for: position)
+        let profitLossPercent = viewModel.profitLossPercent(for: position)
+
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 6) {
+                    Text(position.commodity.symbol)
+                        .font(.system(size: 14, weight: .bold, design: .monospaced))
+                    Text(position.direction.uppercased())
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(directionColor.opacity(0.95), in: Capsule())
+                }
+                Text("\(position.absoluteQuantity.formatted(.number.precision(.fractionLength(0)))) x \(position.contractMultiplier.formatted(.number.precision(.fractionLength(0))))")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(width: 84, alignment: .leading)
+
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(currentPrice.formatted(.currency(code: "USD").precision(.fractionLength(2))))
+                    .font(.system(size: 13, weight: .semibold, design: .monospaced))
+                Text("avg \(position.averageEntryPrice.formatted(.number.precision(.fractionLength(2))))")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(signedCurrency(profitLoss))
+                    .font(.system(size: 13, weight: .bold, design: .monospaced))
+                    .foregroundStyle(changeColor)
+                Text("\(signedNumber(profitLossPercent))%")
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(changeColor.opacity(0.9))
+            }
+            .frame(width: 92, alignment: .trailing)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(changeColor.opacity(0.26), lineWidth: 1))
+    }
+
+    private var directionColor: Color {
+        position.quantity >= 0 ? Color(red: 0, green: 0.90, blue: 0.46) : Color(red: 1, green: 0.70, blue: 0)
+    }
+
+    private var changeColor: Color {
+        viewModel.profitLoss(for: position) >= 0 ? Color(red: 0, green: 0.90, blue: 0.46) : Color(red: 1, green: 0.09, blue: 0.27)
+    }
+
+    private func signedCurrency(_ value: Double) -> String {
+        let sign = value >= 0 ? "+" : ""
+        return sign + value.formatted(.currency(code: "USD").precision(.fractionLength(0)))
+    }
+
+    private func signedNumber(_ value: Double) -> String {
+        let sign = value >= 0 ? "+" : ""
+        return sign + value.formatted(.number.precision(.fractionLength(2)))
     }
 }
 

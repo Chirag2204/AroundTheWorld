@@ -6,11 +6,22 @@ struct MarketChartView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text("Reactive Market Analytics")
-                        .font(.system(size: 22, weight: .semibold))
-                    Text("\(viewModel.selectedCommodity.title) \(viewModel.selectedCommodity.rawValue)")
-                        .font(.system(size: 13, weight: .medium))
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: 10) {
+                        Text(viewModel.selectedCommodity.symbol)
+                            .font(.system(size: 20, weight: .bold, design: .monospaced))
+                            .foregroundStyle(Color(red: 0, green: 0.90, blue: 1))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(Color.cyan.opacity(0.16), in: RoundedRectangle(cornerRadius: 8))
+                            .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.cyan.opacity(0.56), lineWidth: 1))
+                        Text(viewModel.selectedCommodity.title)
+                            .font(.system(size: 19, weight: .semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.72)
+                    }
+                    Text("\(viewModel.selectedCommodity.rawValue) live price / \(viewModel.selectedCommodity.priceUnit)")
+                        .font(.system(size: 13, weight: .medium, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
@@ -20,7 +31,7 @@ struct MarketChartView: View {
                     percentChange: viewModel.livePriceChangePercent,
                     unit: viewModel.selectedCommodity.priceUnit
                 )
-                TicketButton(commodity: viewModel.selectedCommodity)
+                .frame(width: 160)
             }
 
             CandlestickCanvas(
@@ -67,7 +78,7 @@ private struct LivePriceBadge: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
-        .frame(width: 184, alignment: .trailing)
+        .frame(maxWidth: .infinity, alignment: .trailing)
         .background(Color.white.opacity(0.065), in: RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(changeColor.opacity(0.55), lineWidth: 1))
     }
@@ -259,26 +270,6 @@ private struct CrosshairTooltip: View {
 
     private func format(_ value: Double) -> String {
         value.formatted(.number.precision(.fractionLength(2)))
-    }
-}
-
-private struct TicketButton: View {
-    let commodity: Commodity
-
-    var body: some View {
-        Button {
-        } label: {
-            VStack(spacing: 2) {
-                Text("Simulate")
-                    .font(.system(size: 12, weight: .semibold))
-                Text("CME Hedge")
-                    .font(.system(size: 12, weight: .medium))
-            }
-            .frame(width: 94, height: 44)
-        }
-        .buttonStyle(.borderedProminent)
-        .tint(Color(red: 0, green: 0.68, blue: 0.78))
-        .accessibilityLabel("Simulate CME hedge for \(commodity.title)")
     }
 }
 

@@ -163,6 +163,22 @@ struct ProjectionMetrics: Sendable {
     let routeCompression: Double
 }
 
+struct PortfolioPosition: Identifiable, Hashable, Sendable {
+    let id = UUID()
+    let commodity: Commodity
+    let quantity: Double
+    let averageEntryPrice: Double
+    let contractMultiplier: Double
+
+    var direction: String {
+        quantity >= 0 ? "Long" : "Short"
+    }
+
+    var absoluteQuantity: Double {
+        abs(quantity)
+    }
+}
+
 /// A physical commodity hub node anchored to a real-world lat/long (e.g. WTI Crude
 /// at the Cushing, OK storage hub, or Natural Gas at Henry Hub). Distinct from
 /// CommodityEvent: nodes are the always-visible spatial cards driven by the live
@@ -213,6 +229,7 @@ final class CommodityIntelligenceViewModel {
     var events: [CommodityEvent]
     var candlesByCommodity: [Commodity: [CandleData]]
     let routes: [SupplyRoute]
+    let portfolioPositions: [PortfolioPosition]
     @ObservationIgnored private var simulationTask: Task<Void, Never>?
     @ObservationIgnored private var simulationTick = 0
     var commodityNodes: [CommodityNode]
@@ -227,6 +244,7 @@ final class CommodityIntelligenceViewModel {
         events = MockCommodityData.events
         candlesByCommodity = MockCommodityData.candlesByCommodity
         routes = MockCommodityData.routes
+        portfolioPositions = MockCommodityData.portfolioPositions
         commodityNodes = MockCommodityData.hubNodes
         selectedEvent = MockCommodityData.events.first { $0.commodity == .crude }
         focusedCoordinate = selectedEvent?.coordinate ?? Commodity.crude.focusCoordinate
@@ -286,6 +304,36 @@ final class CommodityIntelligenceViewModel {
             marginShift: 12 * abs(stress),
             routeCompression: max(0.35, 1 - abs(stress) * 0.45)
         )
+    }
+
+    var totalPortfolioMarketValue: Double {
+        portfolioPositions.reduce(0) { total, position in
+            total + abs(position.quantity * position.contractMultiplier * currentPrice(for: position.commodity))
+        }
+    }
+
+    var totalPortfolioProfitLoss: Double {
+        portfolioPositions.reduce(0) { total, position in
+            total + profitLoss(for: position)
+        }
+    }
+
+    func currentPrice(for commodity: Commodity) -> Double {
+        candlesByCommodity[commodity]?.last?.close ?? commodity.baselinePrice
+    }
+
+    func marketValue(for position: PortfolioPosition) -> Double {
+        position.quantity * position.contractMultiplier * currentPrice(for: position.commodity)
+    }
+
+    func profitLoss(for position: PortfolioPosition) -> Double {
+        position.quantity * position.contractMultiplier * (currentPrice(for: position.commodity) - position.averageEntryPrice)
+    }
+
+    func profitLossPercent(for position: PortfolioPosition) -> Double {
+        let entryValue = abs(position.quantity * position.contractMultiplier * position.averageEntryPrice)
+        guard entryValue > 0 else { return 0 }
+        return profitLoss(for: position) / entryValue * 100
     }
 
     var liveReadout: String {
@@ -427,6 +475,14 @@ private enum MockCommodityData {
         SupplyRoute(commodity: .silver, originCoordinate: GeoCoordinate(latitude: -23.5, longitude: -46.6), destinationCoordinate: GeoCoordinate(latitude: 31.2, longitude: 121.5), volumeCapacity: 0.21, isChoked: false),
         SupplyRoute(commodity: .naturalGas, originCoordinate: GeoCoordinate(latitude: 29.96, longitude: -92.04), destinationCoordinate: GeoCoordinate(latitude: 51.9, longitude: 4.5), volumeCapacity: 1.8, isChoked: false),
         SupplyRoute(commodity: .naturalGas, originCoordinate: GeoCoordinate(latitude: 25.2, longitude: 51.6), destinationCoordinate: GeoCoordinate(latitude: 35.7, longitude: 139.7), volumeCapacity: 2.1, isChoked: true)
+    ]
+
+    static let portfolioPositions: [PortfolioPosition] = [
+        PortfolioPosition(commodity: .crude, quantity: 18, averageEntryPrice: 126.20, contractMultiplier: 1_000),
+        PortfolioPosition(commodity: .corn, quantity: -12, averageEntryPrice: 300.40, contractMultiplier: 50),
+        PortfolioPosition(commodity: .gold, quantity: 7, averageEntryPrice: 2_815.00, contractMultiplier: 100),
+        PortfolioPosition(commodity: .silver, quantity: 25, averageEntryPrice: 36.25, contractMultiplier: 5_000),
+        PortfolioPosition(commodity: .naturalGas, quantity: -16, averageEntryPrice: 1.25, contractMultiplier: 10_000)
     ]
 
     static let hubNodes: [CommodityNode] = [
