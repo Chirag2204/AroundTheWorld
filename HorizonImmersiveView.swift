@@ -6,9 +6,18 @@ import simd
 
 struct HorizonImmersiveView: View {
     private static let globeCenterY: Float = 1.02
+    private static let globeScale: Float = 1.5
+    private static let globeOverlayScale: Float = 4.0 / globeScale
+    private static let globeMarkerScale: Float = globeOverlayScale * 0.01
+    private static let routeStringScale: Float = globeOverlayScale * 0.1
+    private static let panelScale: Float = 4.0 * 2.0 / 3.0
+    private static let compactPanelScale: Float = panelScale * 2.0 / 3.0
+    private static let dashboardDepth: Float = -1.08
 
     @Environment(AppModel.self) private var appModel
     @Bindable var viewModel: CommodityIntelligenceViewModel
+    @State private var globeDragStartRotation = simd_quatf(angle: 0, axis: [0, 1, 0])
+    @State private var isDraggingGlobe = false
 
     var body: some View {
         RealityView { content, attachments in
@@ -23,19 +32,23 @@ struct HorizonImmersiveView: View {
         } update: { content, attachments in
             guard let sceneRoot = content.entities.first(where: { $0.name == EntityNames.root }) else { return }
             if let globeSystem = sceneRoot.findEntity(named: EntityNames.globeSystem) {
-                content.animate {
+                if viewModel.isRotatingGlobeInteractively {
                     globeSystem.orientation = viewModel.rotationToFocusedCoordinate()
+                } else {
+                    content.animate {
+                        globeSystem.orientation = viewModel.rotationToFocusedCoordinate()
+                    }
+                    if let dynamic = globeSystem.findEntity(named: EntityNames.dynamic) {
+                        dynamic.removeFromParent()
+                    }
+                    globeSystem.addChild(Self.makeDynamicContent(viewModel: viewModel))
                 }
-                if let dynamic = globeSystem.findEntity(named: EntityNames.dynamic) {
-                    dynamic.removeFromParent()
-                }
-                globeSystem.addChild(Self.makeDynamicContent(viewModel: viewModel))
             }
             Self.placeAttachments(in: sceneRoot, attachments: attachments)
         } attachments: {
             Attachment(id: AttachmentID.ribbon) {
                 CommodityRibbonView(viewModel: viewModel)
-                    .frame(width: 430)
+                    .frame(width: 1260)
             }
             Attachment(id: AttachmentID.news) {
                 NewsStreamView(viewModel: viewModel)
@@ -47,7 +60,7 @@ struct HorizonImmersiveView: View {
             }
             Attachment(id: AttachmentID.slider) {
                 PredictiveScenarioSlider(viewModel: viewModel)
-                    .frame(width: 700)
+                    .frame(width: 1260)
             }
             Attachment(id: AttachmentID.callout) {
                 EventCalloutView(event: viewModel.selectedEvent)
@@ -63,14 +76,33 @@ struct HorizonImmersiveView: View {
                     }
                 }
         )
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .targetedToAnyEntity()
+                .onChanged { value in
+                    guard EntityNames.isGlobeRotationTarget(value.entity.name) else { return }
+                    if !isDraggingGlobe {
+                        isDraggingGlobe = true
+                        viewModel.isRotatingGlobeInteractively = true
+                        globeDragStartRotation = viewModel.manualGlobeRotation
+                    }
+                    viewModel.rotateGlobe(from: globeDragStartRotation, translation: value.translation)
+                }
+                .onEnded { _ in
+                    isDraggingGlobe = false
+                    viewModel.isRotatingGlobeInteractively = false
+                    globeDragStartRotation = viewModel.manualGlobeRotation
+                }
+        )
     }
 
     private static func placeAttachments(in root: Entity, attachments: RealityViewAttachments) {
-        attach(AttachmentID.ribbon, from: attachments, to: root, position: [0, 1.72, -1.20], scale: [1.0, 1.0, 1.0])
-        attach(AttachmentID.news, from: attachments, to: root, position: [-1.18, 0.88, -1.05], scale: [1.0, 1.0, 1.0])
-        attach(AttachmentID.chart, from: attachments, to: root, position: [1.24, 0.88, -1.05], scale: [1.0, 1.0, 1.0])
-        attach(AttachmentID.slider, from: attachments, to: root, position: [0, 0.16, -1.05], scale: [1.0, 1.0, 1.0])
-        attach(AttachmentID.callout, from: attachments, to: root, position: [0.32, 1.18, -0.78], scale: [0.72, 0.72, 0.72])
+        let controlScale = compactPanelScale * 2.0 / 3.0
+        attach(AttachmentID.ribbon, from: attachments, to: root, position: [0, 1.74, dashboardDepth], scale: [controlScale, controlScale, controlScale])
+        attach(AttachmentID.news, from: attachments, to: root, position: [-1.38, 1.08, dashboardDepth], scale: [panelScale, panelScale, panelScale])
+        attach(AttachmentID.chart, from: attachments, to: root, position: [1.44, 1.08, dashboardDepth], scale: [panelScale, panelScale, panelScale])
+        attach(AttachmentID.slider, from: attachments, to: root, position: [0, 0.36, dashboardDepth], scale: [controlScale, controlScale, controlScale])
+        attach(AttachmentID.callout, from: attachments, to: root, position: [0, 1.08, dashboardDepth], scale: [panelScale, panelScale, panelScale])
     }
 
     private static func attach(_ id: String, from attachments: RealityViewAttachments, to root: Entity, position: SIMD3<Float>, scale: SIMD3<Float>) {
@@ -87,6 +119,7 @@ struct HorizonImmersiveView: View {
         let root = Entity()
         root.name = EntityNames.globeSystem
         root.position.y = globeCenterY
+        root.scale = [globeScale, globeScale, globeScale]
         root.orientation = viewModel.rotationToFocusedCoordinate()
         root.addChild(makeGlobeEntity())
         root.addChild(makeAtmosphereEntity())
@@ -99,7 +132,10 @@ struct HorizonImmersiveView: View {
         globe.name = EntityNames.globe
 
         let ocean = ModelEntity(mesh: earthMesh(radius: 0.21), materials: [earthMaterial()])
-        ocean.name = "PBR Earth Ocean Base"
+        ocean.name = EntityNames.globeTouchTarget
+        ocean.components.set(InputTargetComponent())
+        ocean.components.set(CollisionComponent(shapes: [.generateSphere(radius: 0.214)]))
+        ocean.components.set(HoverEffectComponent())
         globe.addChild(ocean)
 
         for land in landMasses {
@@ -118,6 +154,8 @@ struct HorizonImmersiveView: View {
     private static func makeAtmosphereEntity() -> Entity {
         let atmosphere = ModelEntity(mesh: .generateSphere(radius: 0.221), materials: [atmosphereMaterial()])
         atmosphere.name = EntityNames.atmosphere
+        atmosphere.components.set(InputTargetComponent())
+        atmosphere.components.set(CollisionComponent(shapes: [.generateSphere(radius: 0.224)]))
         return atmosphere
     }
 
@@ -131,7 +169,7 @@ struct HorizonImmersiveView: View {
             let routeRoot = Entity()
             routeRoot.name = "Route \(route.id.uuidString)"
             for pair in zip(points.dropLast(), points.dropFirst()) {
-                routeRoot.addChild(cylinderBetween(pair.0, pair.1, radius: route.isChoked ? 0.003 : 0.002, color: arcColor))
+                routeRoot.addChild(cylinderBetween(pair.0, pair.1, radius: (route.isChoked ? 0.003 : 0.002) * routeStringScale, color: arcColor))
             }
             root.addChild(routeRoot)
         }
@@ -154,13 +192,13 @@ struct HorizonImmersiveView: View {
 
         let color = eventColor(event)
         let normal = normalize(position)
-        let pin = ModelEntity(mesh: .generateSphere(radius: 0.0048), materials: [emissiveMaterial(color: color, alpha: 1.0)])
+        let pin = ModelEntity(mesh: .generateSphere(radius: 0.0048 * globeMarkerScale), materials: [emissiveMaterial(color: color, alpha: 1.0)])
         pin.components.set(InputTargetComponent())
-        pin.components.set(CollisionComponent(shapes: [.generateSphere(radius: 0.014)]))
+        pin.components.set(CollisionComponent(shapes: [.generateSphere(radius: 0.014 * globeOverlayScale)]))
         pin.name = pinRoot.name
         pinRoot.addChild(pin)
 
-        let halo = ModelEntity(mesh: .generateSphere(radius: 0.011), materials: [emissiveMaterial(color: color, alpha: 0.24)])
+        let halo = ModelEntity(mesh: .generateSphere(radius: 0.011 * globeMarkerScale), materials: [emissiveMaterial(color: color, alpha: 0.24)])
         halo.name = "Event Halo \(event.id.uuidString)"
         pinRoot.addChild(halo)
 
@@ -171,7 +209,7 @@ struct HorizonImmersiveView: View {
         let newsTile = makeEventNewsTile(for: event, normal: normal, tileIndex: tileIndex)
         pinRoot.addChild(newsTile)
 
-        let stem = cylinderBetween([0, 0, 0], normal * -0.012, radius: 0.0009, color: color)
+        let stem = cylinderBetween([0, 0, 0], normal * -0.012, radius: 0.0009 * globeMarkerScale, color: color)
         pinRoot.addChild(stem)
         return pinRoot
     }
@@ -181,13 +219,20 @@ struct HorizonImmersiveView: View {
         glyph.components.set(ViewAttachmentComponent(rootView: EventMapMarkerView(event: event)))
         glyph.position = normal * 0.018
         glyph.orientation = simd_quatf(from: [0, 0, 1], to: normal)
-        glyph.scale = [0.62, 0.62, 0.62]
+        let markerScale = Float(0.62) * globeOverlayScale
+        glyph.scale = [markerScale, markerScale, markerScale]
         glyph.components.set(InputTargetComponent())
-        glyph.components.set(CollisionComponent(shapes: [.generateSphere(radius: 0.016)]))
+        glyph.components.set(CollisionComponent(shapes: [.generateSphere(radius: 0.016 * globeOverlayScale)]))
         return glyph
     }
 
     private static func makeEventNewsTile(for event: CommodityEvent, normal: SIMD3<Float>, tileIndex: Int) -> Entity {
+        let flag = Entity()
+        flag.name = "News Pin Flag \(event.id.uuidString)"
+
+        let mast = cylinderBetween(normal * 0.006, normal * 0.070, radius: 0.0008 * globeOverlayScale, color: eventColor(event))
+        flag.addChild(mast)
+
         let tile = Entity()
         tile.name = "News Tile \(event.id.uuidString)"
         tile.components.set(ViewAttachmentComponent(rootView: EventMapNewsTileView(event: event)))
@@ -196,10 +241,12 @@ struct HorizonImmersiveView: View {
         let vertical = normalize(simd_cross(normal, tangent))
         let horizontalOffset = Float(tileIndex % 2 == 0 ? -0.022 : 0.022)
         let verticalOffset = Float(tileIndex / 2) * 0.020
-        tile.position = normal * 0.076 + tangent * horizontalOffset + vertical * (0.030 + verticalOffset)
-        tile.orientation = simd_quatf(from: [0, 0, 1], to: normal)
-        tile.scale = [0.28, 0.28, 0.28]
-        return tile
+        tile.position = normal * 0.074 + tangent * horizontalOffset + vertical * (0.026 + verticalOffset)
+        tile.orientation = simd_quatf(from: [0, 0, 1], to: -tangent)
+        let tileScale = Float(0.26) * globeOverlayScale
+        tile.scale = [tileScale, tileScale, tileScale]
+        flag.addChild(tile)
+        return flag
     }
 
     private static func stableTangent(for normal: SIMD3<Float>) -> SIMD3<Float> {
@@ -218,7 +265,7 @@ struct HorizonImmersiveView: View {
         root.position = position
         let pulseScale = Float(1.0 + abs(scenarioSeverity) / 90)
         for index in 0..<3 {
-            let shell = ModelEntity(mesh: .generateSphere(radius: 0.014 + Float(index) * 0.009), materials: [emissiveMaterial(color: UIColor(red: 1, green: 0.09, blue: 0.27, alpha: 1), alpha: 0.16 - CGFloat(index) * 0.035)])
+            let shell = ModelEntity(mesh: .generateSphere(radius: (0.0048 + Float(index) * 0.0015) * globeMarkerScale), materials: [emissiveMaterial(color: UIColor(red: 1, green: 0.09, blue: 0.27, alpha: 1), alpha: 0.16 - CGFloat(index) * 0.035)])
             shell.scale = [pulseScale, pulseScale, pulseScale]
             root.addChild(shell)
         }
@@ -408,7 +455,8 @@ struct HorizonImmersiveView: View {
         text.name = "Geo Label \(label.title)"
         text.position = normal * label.radius
         text.orientation = simd_quatf(from: [0, 0, 1], to: normal)
-        text.scale = [label.scale, label.scale, label.scale]
+        let labelScale = label.scale * globeOverlayScale
+        text.scale = [labelScale, labelScale, labelScale]
         return text
     }
 
@@ -558,12 +606,17 @@ private enum EntityNames {
     static let root = "CME Horizon Root"
     static let globeSystem = "Globe Coordinate System"
     static let globe = "Photorealistic PBR Globe"
+    static let globeTouchTarget = "Globe Rotation Touch Target"
     static let atmosphere = "Fresnel Atmosphere Glow"
     static let dynamic = "Dynamic Commodity Routes and Pins"
     static let shock = "Selected Shock Pulse"
 
     static func pinName(for event: CommodityEvent) -> String {
         "Pin-\(event.id.uuidString)"
+    }
+
+    static func isGlobeRotationTarget(_ name: String) -> Bool {
+        name == globeTouchTarget || name == atmosphere
     }
 }
 

@@ -171,20 +171,44 @@ struct EventCalloutView: View {
     let event: CommodityEvent?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(event?.commodity.symbol ?? "CL")
-                .font(.system(size: 13, weight: .bold, design: .monospaced))
-                .foregroundStyle(Color(red: 0, green: 0.90, blue: 1))
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Text(event?.commodity.symbol ?? "CL")
+                    .font(.system(size: 16, weight: .bold, design: .monospaced))
+                    .foregroundStyle(Color(red: 0, green: 0.90, blue: 1))
+                Spacer()
+                Text(event?.volumeImpact ?? "Live")
+                    .font(.system(size: 15, weight: .bold, design: .monospaced))
+                    .foregroundStyle(impactColor)
+            }
+
             Text(event?.headline ?? "Spatial Pulse")
-                .font(.system(size: 17, weight: .semibold))
-                .lineLimit(2)
+                .font(.system(size: 26, weight: .semibold))
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+
+            ScrollView {
+                Text(event?.blogBody ?? "Live risk vector initializing. Select an event to read the complete market context, affected route, and projected pricing impact.")
+                    .font(.system(size: 19, weight: .medium))
+                    .lineSpacing(6)
+                    .foregroundStyle(.primary.opacity(0.92))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(height: 252)
+            .scrollIndicators(.hidden)
+
             Text(event?.metricImpact ?? "Live risk vector initializing")
-                .font(.system(size: 13, weight: .medium, design: .monospaced))
+                .font(.system(size: 15, weight: .medium, design: .monospaced))
                 .foregroundStyle(.secondary)
+                .lineLimit(2)
         }
-        .padding(14)
-        .frame(width: 300, alignment: .leading)
+        .padding(24)
+        .frame(width: 840, alignment: .leading)
         .glassPanel(border: Color.cyan.opacity(0.52))
+    }
+
+    private var impactColor: Color {
+        (event?.severity ?? 0) >= 0 ? Color(red: 1, green: 0.20, blue: 0.32) : Color(red: 0, green: 0.95, blue: 0.52)
     }
 }
 

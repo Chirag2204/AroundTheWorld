@@ -99,6 +99,39 @@ struct CommodityEvent: Identifiable, Hashable, Sendable {
     let volumeImpact: String
     let timestamp: Date
     let metricImpact: String
+
+    var blogBody: String {
+        switch headline {
+        case "Strait of Hormuz naval tension raises tanker insurance":
+            "Tanker underwriters are widening war-risk premiums around the Strait of Hormuz after new naval warnings near outbound crude lanes. Physical desks are marking slower load programs and higher voyage costs into Asia, while refiners with flexible slates are lifting optional barrels from Atlantic Basin suppliers. The immediate market signal is a tighter prompt crude balance with freight and insurance costs feeding directly into delivered margins."
+        case "Red Sea rerouting extends crude transit into Europe":
+            "More crude cargoes are avoiding Red Sea passages and adding Cape of Good Hope mileage into European delivery windows. The reroute ties up vessel days, reduces spot tanker availability, and pushes refiners to carry higher working inventories. Traders are watching dated Brent differentials and VLCC spreads for confirmation that the logistics premium is becoming embedded."
+        case "Gulf of Mexico hurricane warning threatens offshore output":
+            "Storm tracks across the central Gulf are raising shut-in risk for offshore platforms and coastal terminals. Operators are preparing evacuation plans while refiners assess crude receipt timing and product run coverage. A confirmed production halt would tighten nearby WTI balances first, then ripple into gasoline and distillate cracks if port closures linger."
+        case "US Midwest drought heat dome cuts yield estimates":
+            "High overnight temperatures and limited soil moisture across the western Corn Belt are forcing analysts to trim ear-weight assumptions. Crop scouts are reporting uneven kernel fill, especially in fields that missed late-July rainfall. Futures are reacting through stronger basis and higher volatility as end users compete for assured fall coverage."
+        case "Black Sea grain corridor blockade slows inspections":
+            "Inspection delays around Black Sea export corridors are reducing weekly corn and feed grain clearances. Buyers in North Africa and the Mediterranean are asking for replacement offers from the Americas, but freight timing remains uneven. The event matters because a slower corridor shifts nearby demand into fewer origins and supports FOB premiums."
+        case "Brazilian port strike delays Santos loading windows":
+            "Labor action near Santos is stretching vessel queues and pushing some corn loading windows into the following cycle. Exporters are prioritizing higher-margin commitments while crushers and feed users monitor demurrage exposure. The supply chain effect is less about lost crop and more about timing, cash basis, and the cost of keeping cargoes on schedule."
+        case "Central bank reserve accumulation lifts physical demand":
+            "Reserve managers are continuing to add bullion into official-sector portfolios, keeping physical demand firm even as futures positioning fluctuates. The buying reduces available vaulted supply and supports lease rates during periods of currency volatility. Dealers are watching Asian premiums and central bank disclosure calendars for follow-through."
+        case "South African mine power grid failure disrupts refining":
+            "A regional grid failure has interrupted mine hoisting, processing, and refinery schedules across part of South Africa's gold belt. Producers are prioritizing safety checks before restoring throughput, which can delay dore movement into refining channels. The market impact is a temporary squeeze in nearby physical availability rather than a permanent reserve loss."
+        case "Global currency hedge surge boosts haven bid":
+            "Currency volatility is pushing macro funds and corporate treasurers back toward gold hedges. The flow is showing up in stronger ETF creations and firmer options demand around upside strikes. A sustained hedge cycle would keep futures supported even if real yields remain a competing pressure."
+        case "Mexican mine labor action tightens refined silver supply":
+            "Work stoppages at a major Mexican silver district are limiting concentrate movement into smelters and reducing refined output expectations. Industrial users are checking forward availability while merchants quote wider lease spreads. The disruption is important because silver inventories are thinner than headline production totals imply."
+        case "Solar manufacturing restock lifts industrial silver demand":
+            "Solar manufacturers are rebuilding silver paste inventories after a faster production run-rate in module lines. Procurement desks are pulling forward orders to protect factory schedules, tightening nearby metal availability. Traders are watching whether the restock becomes a sustained industrial demand upgrade or a short inventory catch-up."
+        case "Gulf LNG maintenance narrows export feedgas demand":
+            "Scheduled maintenance at Gulf Coast LNG infrastructure is reducing feedgas nominations and freeing more supply for domestic storage. Basis markets are softening near connected hubs as traders recalibrate export demand for the maintenance window. The bearish impact should fade if nominations recover on schedule."
+        case "Early winter storage draw raises Henry Hub risk premium":
+            "A colder early-season forecast is lifting expected heating demand and pulling more gas from storage models. Utilities are checking winter coverage while prompt Henry Hub contracts price a higher risk premium. The key question is whether the draw is a one-week weather shock or the start of a tighter seasonal balance."
+        default:
+            "Live market sensors detected a fresh \(commodity.title) event linking price movement with abnormal volume, route sensitivity, and scenario risk. The signal has not yet changed the base supply picture, but it is large enough to affect short-horizon hedging, volatility expectations, and trader positioning."
+        }
+    }
 }
 
 struct CandleData: Identifiable, Hashable, Sendable {
@@ -136,6 +169,7 @@ final class CommodityIntelligenceViewModel {
         didSet {
             selectedEvent = events.first { $0.commodity == selectedCommodity }
             focusedCoordinate = selectedEvent?.coordinate ?? selectedCommodity.focusCoordinate
+            manualGlobeRotation = simd_quatf(angle: 0, axis: [0, 1, 0])
         }
     }
 
@@ -150,6 +184,8 @@ final class CommodityIntelligenceViewModel {
     var scenarioSeverity: Double = 0
     var scrubbedCandle: CandleData?
     var focusedCoordinate: GeoCoordinate = Commodity.crude.focusCoordinate
+    var manualGlobeRotation = simd_quatf(angle: 0, axis: [0, 1, 0])
+    var isRotatingGlobeInteractively = false
 
     var events: [CommodityEvent]
     var candlesByCommodity: [Commodity: [CandleData]]
@@ -230,10 +266,19 @@ final class CommodityIntelligenceViewModel {
 
     func focus(on event: CommodityEvent) {
         selectedEvent = event
+        manualGlobeRotation = simd_quatf(angle: 0, axis: [0, 1, 0])
     }
 
     func rotationToFocusedCoordinate() -> simd_quatf {
-        GlobeMath.rotationToFace(latitude: focusedCoordinate.latitude, longitude: focusedCoordinate.longitude)
+        manualGlobeRotation * GlobeMath.rotationToFace(latitude: focusedCoordinate.latitude, longitude: focusedCoordinate.longitude)
+    }
+
+    func rotateGlobe(from startingRotation: simd_quatf, translation: CGSize) {
+        let yaw = Float(translation.width) * 0.014
+        let pitch = Float(translation.height) * 0.010
+        let yawRotation = simd_quatf(angle: yaw, axis: [0, 1, 0])
+        let pitchRotation = simd_quatf(angle: pitch, axis: [1, 0, 0])
+        manualGlobeRotation = pitchRotation * yawRotation * startingRotation
     }
 
     private func startLiveSimulation() {
